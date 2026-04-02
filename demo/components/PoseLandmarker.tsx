@@ -65,6 +65,23 @@ const defaultPoseOverlay: OverlayRenderer = ({
 	ctx.restore();
 };
 
+async function createPoseLandmarkerWithFallback(vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>, modelPath: string) {
+  try {
+    return await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: modelPath, delegate: "GPU" },
+      runningMode: "VIDEO",
+      numPoses: 1,
+    });
+  } catch {
+    console.log("GPU delegate failed to initialize, falling back to CPU.");
+    return PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: modelPath, delegate: "CPU" },
+      runningMode: "VIDEO",
+      numPoses: 1,
+    });
+  }
+}
+
 export default function PoseLandmarkerView({
 	className,
 	modelPath = DEFAULT_MODEL_PATH,
@@ -210,16 +227,7 @@ export default function PoseLandmarkerView({
 					return;
 				}
 
-				detectorRef.current = await PoseLandmarker.createFromOptions(vision, {
-					baseOptions: {
-						modelAssetPath: modelPath,
-					},
-					runningMode: "VIDEO",
-					numPoses: 1,
-					minPoseDetectionConfidence: 0.5,
-					minTrackingConfidence: 0.5,
-					minPosePresenceConfidence: 0.5,
-				});
+				detectorRef.current = await createPoseLandmarkerWithFallback(vision, modelPath);
 
 				if (!isMounted) {
 					return;
