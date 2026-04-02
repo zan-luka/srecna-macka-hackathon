@@ -22,11 +22,32 @@ type PoseLandmarkerProps = {
 	className?: string;
 	modelPath?: string;
 	overlays?: OverlayRenderer[];
+	captureEveryNthFrame?: number;
 };
 
 const DEFAULT_MODEL_PATH = "/models/pose_landmarker_full.task";
 const MEDIAPIPE_WASM_BASE_URL =
 	"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
+const DEFAULT_CAPTURE_EVERY_NTH_FRAME = 1;
+
+type PoseWorkerMessage = {
+	type: "landmarks";
+	frameIndex: number;
+	timestamp: number;
+	landmarks: PoseLandmarkerResult["landmarks"];
+};
+
+type PoseWorkerInstance = {
+	postMessage: (message: PoseWorkerMessage) => void;
+	terminate: () => void;
+};
+
+function createPoseWorker() {
+	return new Worker(
+		new URL("./poseLandmarker.worker.ts", import.meta.url),
+		{ type: "module" },
+	) as unknown as PoseWorkerInstance;
+}
 
 const defaultPoseOverlay: OverlayRenderer = ({
 	result,
@@ -86,13 +107,17 @@ export default function PoseLandmarkerView({
 	className,
 	modelPath = DEFAULT_MODEL_PATH,
 	overlays,
+	captureEveryNthFrame = DEFAULT_CAPTURE_EVERY_NTH_FRAME,
 }: PoseLandmarkerProps) {
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const rafRef = useRef<number | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
 	const detectorRef = useRef<PoseLandmarker | null>(null);
+	const workerRef = useRef<PoseWorkerInstance | null>(null);
 	const lastVideoTimeRef = useRef<number>(-1);
+	const frameIndexRef = useRef(0);
+	const captureInterval = Math.max(1, Math.floor(captureEveryNthFrame));
 
 	const [error, setError] = useState<string | null>(null);
 	const [isReady, setIsReady] = useState(false);
@@ -129,6 +154,9 @@ export default function PoseLandmarkerView({
 
 			detectorRef.current?.close();
 			detectorRef.current = null;
+
+			workerRef.current?.terminate();
+			workerRef.current = null;
 		};
 
 		const syncCanvasWithVideo = () => {
@@ -173,6 +201,7 @@ export default function PoseLandmarkerView({
 
 			if (video.currentTime !== lastVideoTimeRef.current) {
 				lastVideoTimeRef.current = video.currentTime;
+				frameIndexRef.current += 1;
 
 				const result = detector.detectForVideo(video, performance.now());
 
@@ -186,6 +215,15 @@ export default function PoseLandmarkerView({
 						result,
 						width: canvas.width,
 						height: canvas.height,
+					});
+				}
+
+				if (workerRef.current && frameIndexRef.current % captureInterval === 0) {
+					workerRef.current.postMessage({
+						type: "landmarks",
+						frameIndex: frameIndexRef.current,
+						timestamp: performance.now(),
+						landmarks: result.landmarks,
 					});
 				}
 			}
@@ -216,6 +254,7 @@ export default function PoseLandmarkerView({
 
 				streamRef.current = mediaStream;
 				video.srcObject = mediaStream;
+				workerRef.current = createPoseWorker();
 
 				await video.play();
 
@@ -227,6 +266,7 @@ export default function PoseLandmarkerView({
 					return;
 				}
 
+				frameIndexRef.current = 0;
 				detectorRef.current = await createPoseLandmarkerWithFallback(vision, modelPath);
 
 				if (!isMounted) {
@@ -236,6 +276,9 @@ export default function PoseLandmarkerView({
 				setIsReady(true);
 				drawFrame();
 			} catch (startError) {
+				workerRef.current?.terminate();
+				workerRef.current = null;
+
 				const message =
 					startError instanceof Error
 						? startError.message
@@ -251,7 +294,7 @@ export default function PoseLandmarkerView({
 			setIsReady(false);
 			teardown();
 		};
-	}, [activeOverlays, modelPath]);
+	}, [activeOverlays, captureInterval, modelPath]);
 
 	return (
 		<div className={className}>
