@@ -177,6 +177,10 @@ export default function PoseLandmarkerView({
 		[overlays],
 	);
 
+	const deferWorkoutUpdate = (update: () => void) => {
+		queueMicrotask(update);
+	};
+
 	useEffect(() => {
 		let isMounted = true;
 
@@ -357,7 +361,7 @@ export default function PoseLandmarkerView({
 
 	useEffect(() => {
 		if (sessionState === "idle") {
-			resetWorkoutState();
+			deferWorkoutUpdate(resetWorkoutState);
 			return;
 		}
 
@@ -372,17 +376,19 @@ export default function PoseLandmarkerView({
 		}
 
 		if (!hasExercises) {
-			setExercisePhase("finished");
+			deferWorkoutUpdate(() => {
+				setExercisePhase("finished");
+			});
 			return;
 		}
 
 		if (exercisePhase === "idle" || exercisePhase === "countdown") {
-			startCountdown();
+			deferWorkoutUpdate(startCountdown);
 			return;
 		}
 
 		if (exercisePhase === "active") {
-			startActiveExercise();
+			deferWorkoutUpdate(startActiveExercise);
 		}
 	}, [
 		sessionState,

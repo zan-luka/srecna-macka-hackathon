@@ -1,4 +1,5 @@
-import { getLandmarkStats, normalizeLandmarks } from "./pose-landmarker/workerNormalization";
+// import { getLandmarkStats, normalizeLandmarks } from "./pose-landmarker/workerNormalization";
+import { normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import type { PoseWorkerInboundMessage } from "./pose-landmarker/types";
 
 self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>) => {
@@ -23,11 +24,12 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 	const normalizedLandmarks = normalizedResults.map((r) => r.landmarks);
 	const torsoSize = normalizedResults[0]?.torsoSize || 0;
 
+	/*
 	// Get statistics for comparison
 	const originalStats = message.landmarks.map((lm) => getLandmarkStats(lm));
 	const normalizedStats = normalizedLandmarks.map((lm) => getLandmarkStats(lm));
 
-	/*
+	
 	console.group(`🎯 Frame #${message.frameIndex} - Normalization Test`);
 	console.log("ORIGINAL LANDMARKS STATS:");
 	console.table(originalStats);

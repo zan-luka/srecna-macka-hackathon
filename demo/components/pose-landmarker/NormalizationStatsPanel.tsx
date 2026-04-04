@@ -59,8 +59,7 @@ export function NormalizationStatsPanel({
 				</div>
 			</div>
 			<p className="mt-3 text-xs text-zinc-500">
-				Check browser console (F12) for detailed frame-by-frame stats → Groups
-				starting with "🎯 Frame"
+				Check browser console (F12) for detailed frame-by-frame stats
 			</p>
 		</div>
 	);
