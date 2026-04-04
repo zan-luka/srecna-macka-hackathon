@@ -23,12 +23,32 @@ type PoseLandmarkerProps = {
 	modelPath?: string;
 	overlays?: OverlayRenderer[];
 	captureEveryNthFrame?: number;
+	sessionState?: "idle" | "running" | "paused";
+	onExit?: () => void;
 };
 
 const DEFAULT_MODEL_PATH = "/models/pose_landmarker_full.task";
 const MEDIAPIPE_WASM_BASE_URL =
 	"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
 const DEFAULT_CAPTURE_EVERY_NTH_FRAME = 1;
+const EXERCISE_PREVIEW_SECONDS = 5;
+const DEFAULT_SECONDS_PER_REPETITION = 2;
+
+type ExercisePlanItem = {
+	name: string;
+	repetitions?: number;
+	durationSeconds?: number;
+};
+
+const EXERCISE_PLAN: ExercisePlanItem[] = [
+	{ name: "Jumping Jacks", repetitions: 12 },
+	{ name: "Plank", durationSeconds: 20 },
+	{ name: "Bodyweight Squats", repetitions: 10 },
+];
+
+const POSE_DETECTION_CONFIDENCE = 0.5;
+const POSE_PRESENCE_CONFIDENCE = 0.5;
+const TRACKING_CONFIDENCE = 0.5;
 
 type PoseWorkerMessage = {
 	type: "landmarks";
@@ -36,6 +56,17 @@ type PoseWorkerMessage = {
 	timestamp: number;
 	landmarks: PoseLandmarkerResult["landmarks"];
 };
+
+type ExerciseStartedWorkerMessage = {
+	type: "exercise_started";
+	frameIndex: number;
+	timestamp: number;
+	exerciseName: string;
+	mode: "duration" | "repetitions";
+	target: number;
+};
+
+type PoseWorkerInboundMessage = PoseWorkerMessage | ExerciseStartedWorkerMessage;
 
 type NormalizedLandmarksMessage = {
 	type: "normalized_landmarks";
@@ -47,7 +78,7 @@ type NormalizedLandmarksMessage = {
 };
 
 type PoseWorkerInstance = {
-	postMessage: (message: PoseWorkerMessage) => void;
+	postMessage: (message: PoseWorkerInboundMessage) => void;
 	terminate: () => void;
 	onmessage: ((event: MessageEvent<NormalizedLandmarksMessage>) => void) | null;
 };
@@ -118,6 +149,8 @@ export default function PoseLandmarkerView({
 	modelPath = DEFAULT_MODEL_PATH,
 	overlays,
 	captureEveryNthFrame = DEFAULT_CAPTURE_EVERY_NTH_FRAME,
+	sessionState = "idle",
+	onExit,
 }: PoseLandmarkerProps) {
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -131,11 +164,138 @@ export default function PoseLandmarkerView({
 
 	const [error, setError] = useState<string | null>(null);
 	const [isReady, setIsReady] = useState(false);
+	const [exerciseIndex, setExerciseIndex] = useState(0);
+	const [exercisePhase, setExercisePhase] = useState<
+		"idle" | "countdown" | "active" | "finished"
+	>("idle");
+	const [countdownRemaining, setCountdownRemaining] = useState(EXERCISE_PREVIEW_SECONDS);
+	const [remainingValue, setRemainingValue] = useState(0);
+	const [remainingUnit, setRemainingUnit] = useState<"seconds" | "repetitions">("seconds");
 	const [normalizedStats, setNormalizedStats] = useState<{
 		originalRange: { minX: number; maxX: number; minY: number; maxY: number };
 		normalizedRange: { minX: number; maxX: number; minY: number; maxY: number };
 		torsoSize: number;
 	} | null>(null);
+	const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+	const currentExercise = EXERCISE_PLAN[exerciseIndex] ?? null;
+	const hasExercises = EXERCISE_PLAN.length > 0;
+
+	const clearWorkoutIntervals = () => {
+		if (countdownIntervalRef.current) {
+			clearInterval(countdownIntervalRef.current);
+			countdownIntervalRef.current = null;
+		}
+
+		if (activeIntervalRef.current) {
+			clearInterval(activeIntervalRef.current);
+			activeIntervalRef.current = null;
+		}
+	};
+
+	const resetWorkoutState = () => {
+		clearWorkoutIntervals();
+		setExerciseIndex(0);
+		setExercisePhase("idle");
+		setCountdownRemaining(EXERCISE_PREVIEW_SECONDS);
+		setRemainingValue(0);
+		setRemainingUnit("seconds");
+	};
+
+	const finishCurrentExercise = () => {
+		clearWorkoutIntervals();
+		setExerciseIndex((previousIndex) => {
+			const nextIndex = previousIndex + 1;
+			if (nextIndex >= EXERCISE_PLAN.length) {
+				setExercisePhase("finished");
+				setCountdownRemaining(0);
+				setRemainingValue(0);
+				return previousIndex;
+			}
+
+			setExercisePhase("countdown");
+			setCountdownRemaining(EXERCISE_PREVIEW_SECONDS);
+			setRemainingValue(0);
+			return nextIndex;
+		});
+	};
+
+	const startCountdown = () => {
+		if (!hasExercises || !currentExercise) {
+			setExercisePhase("finished");
+			return;
+		}
+
+		if (sessionState !== "running") {
+			return;
+		}
+
+		setExercisePhase("countdown");
+		setCountdownRemaining((previous) => (previous > 0 ? previous : EXERCISE_PREVIEW_SECONDS));
+		if (countdownIntervalRef.current) {
+			return;
+		}
+
+		countdownIntervalRef.current = setInterval(() => {
+			setCountdownRemaining((previous) => {
+				if (previous <= 1) {
+					if (countdownIntervalRef.current) {
+						clearInterval(countdownIntervalRef.current);
+						countdownIntervalRef.current = null;
+					}
+					setExercisePhase("active");
+					return 0;
+				}
+
+				return previous - 1;
+			});
+		}, 1000);
+	};
+
+	const startActiveExercise = () => {
+		if (!currentExercise || sessionState !== "running") {
+			return;
+		}
+
+		if (activeIntervalRef.current) {
+			return;
+		}
+
+		const isDurationExercise = typeof currentExercise.durationSeconds === "number";
+		const targetValue = isDurationExercise
+			? Math.max(1, currentExercise.durationSeconds ?? 1)
+			: Math.max(1, currentExercise.repetitions ?? 1);
+
+		setRemainingUnit(isDurationExercise ? "seconds" : "repetitions");
+		setRemainingValue((previous) => (previous > 0 ? previous : targetValue));
+
+		workerRef.current?.postMessage({
+			type: "exercise_started",
+			frameIndex: frameIndexRef.current,
+			timestamp: performance.now(),
+			exerciseName: currentExercise.name,
+			mode: isDurationExercise ? "duration" : "repetitions",
+			target: targetValue,
+		});
+
+		activeIntervalRef.current = setInterval(() => {
+			setRemainingValue((previous) => {
+				if (previous <= 1) {
+					if (activeIntervalRef.current) {
+						clearInterval(activeIntervalRef.current);
+						activeIntervalRef.current = null;
+					}
+					queueMicrotask(() => {
+						finishCurrentExercise();
+					});
+					return 0;
+				}
+
+				return previous - 1;
+			});
+		}, isDurationExercise ? 1000 : DEFAULT_SECONDS_PER_REPETITION * 1000);
+	};
 
 	const activeOverlays = useMemo(
 		() => (overlays?.length ? overlays : [defaultPoseOverlay]),
@@ -166,6 +326,7 @@ export default function PoseLandmarkerView({
 		const teardown = () => {
 			stopLoop();
 			stopCamera();
+			clearWorkoutIntervals();
 
 			detectorRef.current?.close();
 			detectorRef.current = null;
@@ -349,6 +510,48 @@ export default function PoseLandmarkerView({
 		};
 	}, [activeOverlays, captureInterval, modelPath]);
 
+	useEffect(() => {
+		if (sessionState === "idle") {
+			resetWorkoutState();
+			return;
+		}
+
+		if (exercisePhase === "finished") {
+			clearWorkoutIntervals();
+			return;
+		}
+
+		if (sessionState === "paused") {
+			clearWorkoutIntervals();
+			return;
+		}
+
+		if (!hasExercises) {
+			setExercisePhase("finished");
+			return;
+		}
+
+		if (exercisePhase === "idle" || exercisePhase === "countdown") {
+			startCountdown();
+			return;
+		}
+
+		if (exercisePhase === "active") {
+			startActiveExercise();
+		}
+	}, [
+		sessionState,
+		exercisePhase,
+		exerciseIndex,
+		hasExercises,
+		currentExercise,
+	]);
+
+	const handleExit = () => {
+		resetWorkoutState();
+		onExit?.();
+	};
+
 	return (
 		<div className={className}>
 			<div className="relative w-full overflow-hidden rounded-xl bg-black">
@@ -363,6 +566,47 @@ export default function PoseLandmarkerView({
 					ref={canvasRef}
 					className="pointer-events-none absolute inset-0 h-full w-full"
 				/>
+
+				{sessionState === "running" && exercisePhase === "countdown" && currentExercise && (
+					<div className="absolute inset-0 flex items-center justify-center bg-black/35 p-4">
+						<div className="rounded-xl border border-white/40 bg-black/70 px-6 py-5 text-center text-white shadow-lg backdrop-blur">
+							<p className="text-xs uppercase tracking-widest text-cyan-300">Next exercise</p>
+							<h2 className="mt-1 text-2xl font-semibold">{currentExercise.name}</h2>
+							<p className="mt-2 text-sm text-zinc-100">
+								{typeof currentExercise.durationSeconds === "number"
+									? `${currentExercise.durationSeconds}s duration`
+									: `${currentExercise.repetitions ?? 0} repetitions`}
+							</p>
+							<p className="mt-3 text-lg font-medium text-amber-300">Starts in {countdownRemaining}s</p>
+						</div>
+					</div>
+				)}
+
+				{sessionState === "running" && exercisePhase === "active" && currentExercise && (
+					<div className="absolute right-3 top-3 rounded-lg bg-black/75 px-3 py-2 text-right text-sm text-white shadow">
+						<p className="font-semibold">{currentExercise.name}</p>
+						<p className="text-cyan-300">
+							{remainingUnit === "seconds"
+								? `${remainingValue}s left`
+								: `${remainingValue} reps left`}
+						</p>
+					</div>
+				)}
+
+				{exercisePhase === "finished" && (
+					<div className="absolute inset-0 flex items-center justify-center bg-black/45 p-4">
+						<div className="rounded-xl border border-white/40 bg-black/75 px-6 py-5 text-center text-white shadow-lg backdrop-blur">
+							<h2 className="text-3xl font-bold text-emerald-300">Finish</h2>
+							<button
+								type="button"
+								onClick={handleExit}
+								className="mt-4 rounded-md bg-white px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100"
+							>
+								Exit
+							</button>
+						</div>
+					</div>
+				)}
 			</div>
 
 			{error ? (

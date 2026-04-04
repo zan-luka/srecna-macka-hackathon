@@ -7,6 +7,17 @@ type PoseLandmarksPayload = {
 	landmarks: Array<Array<Landmark>>;
 };
 
+type ExerciseStartedPayload = {
+	type: "exercise_started";
+	frameIndex: number;
+	timestamp: number;
+	exerciseName: string;
+	mode: "duration" | "repetitions";
+	target: number;
+};
+
+type WorkerPayload = PoseLandmarksPayload | ExerciseStartedPayload;
+
 // MediaPipe Pose landmark indices
 const POSE_LANDMARKS = {
 	LEFT_SHOULDER: 11,
@@ -147,8 +158,15 @@ function getLandmarkStats(landmarks: Landmark[]): {
 	};
 }
 
-self.addEventListener("message", (event: MessageEvent<PoseLandmarksPayload>) => {
+self.addEventListener("message", (event: MessageEvent<WorkerPayload>) => {
 	const message = event.data;
+
+	if (message.type === "exercise_started") {
+		console.log(
+			`🏁 Exercise started: ${message.exerciseName} (${message.mode === "duration" ? `${message.target}s` : `${message.target} reps`})`,
+		);
+		return;
+	}
 
 	if (message.type !== "landmarks") {
 		return;
