@@ -37,9 +37,17 @@ type PoseWorkerMessage = {
 	landmarks: PoseLandmarkerResult["landmarks"];
 };
 
+type NormalizedLandmarksMessage = {
+	type: "normalized_landmarks";
+	frameIndex: number;
+	timestamp: number;
+	landmarks: Array<Array<{ x: number; y: number; z: number; visibility?: number; presence?: number }>>;
+};
+
 type PoseWorkerInstance = {
 	postMessage: (message: PoseWorkerMessage) => void;
 	terminate: () => void;
+	onmessage: ((event: MessageEvent<NormalizedLandmarksMessage>) => void) | null;
 };
 
 function createPoseWorker() {
@@ -255,6 +263,19 @@ export default function PoseLandmarkerView({
 				streamRef.current = mediaStream;
 				video.srcObject = mediaStream;
 				workerRef.current = createPoseWorker();
+
+				// Set up listener for normalized landmarks from worker
+				workerRef.current.onmessage = (event: MessageEvent<NormalizedLandmarksMessage>) => {
+					const message = event.data;
+					if (message.type === "normalized_landmarks") {
+						console.log("Main thread received normalized landmarks:", {
+							frameIndex: message.frameIndex,
+							timestamp: message.timestamp,
+							normalizedLandmarks: message.landmarks,
+						});
+						// Normalized landmarks can be used for pose classification, gesture recognition, etc.
+					}
+				};
 
 				await video.play();
 
