@@ -184,6 +184,7 @@ self.addEventListener("message", (event: MessageEvent<WorkerPayload>) => {
 	const originalStats = message.landmarks.map((lm) => getLandmarkStats(lm));
 	const normalizedStats = normalizedLandmarks.map((lm) => getLandmarkStats(lm));
 
+	/*
 	console.group(`🎯 Frame #${message.frameIndex} - Normalization Test`);
 	console.log("ORIGINAL LANDMARKS STATS:");
 	console.table(originalStats);
@@ -196,6 +197,7 @@ self.addEventListener("message", (event: MessageEvent<WorkerPayload>) => {
 	});
 	console.log(`Torso Size: ${torsoSize.toFixed(4)}`);
 	console.groupEnd();
+	*/
 
 	// Send normalized landmarks back to main thread if needed
 	self.postMessage({
