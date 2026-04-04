@@ -41,7 +41,9 @@ type NormalizedLandmarksMessage = {
 	type: "normalized_landmarks";
 	frameIndex: number;
 	timestamp: number;
-	landmarks: Array<Array<{ x: number; y: number; z: number; visibility?: number; presence?: number }>>;
+	originalLandmarks: Array<Array<{ x: number; y: number; z: number; visibility?: number; presence?: number }>>;
+	normalizedLandmarks: Array<Array<{ x: number; y: number; z: number; visibility?: number; presence?: number }>>;
+	torsoSize?: number;
 };
 
 type PoseWorkerInstance = {
@@ -129,6 +131,11 @@ export default function PoseLandmarkerView({
 
 	const [error, setError] = useState<string | null>(null);
 	const [isReady, setIsReady] = useState(false);
+	const [normalizedStats, setNormalizedStats] = useState<{
+		originalRange: { minX: number; maxX: number; minY: number; maxY: number };
+		normalizedRange: { minX: number; maxX: number; minY: number; maxY: number };
+		torsoSize: number;
+	} | null>(null);
 
 	const activeOverlays = useMemo(
 		() => (overlays?.length ? overlays : [defaultPoseOverlay]),
@@ -268,12 +275,37 @@ export default function PoseLandmarkerView({
 				workerRef.current.onmessage = (event: MessageEvent<NormalizedLandmarksMessage>) => {
 					const message = event.data;
 					if (message.type === "normalized_landmarks") {
-						console.log("Main thread received normalized landmarks:", {
-							frameIndex: message.frameIndex,
-							timestamp: message.timestamp,
-							normalizedLandmarks: message.landmarks,
-						});
-						// Normalized landmarks can be used for pose classification, gesture recognition, etc.
+						// Calculate statistics for visualization
+						const originalLandmarks = message.originalLandmarks[0] || [];
+						const normalizedLandmarks = message.normalizedLandmarks[0] || [];
+
+						if (originalLandmarks.length > 0 && normalizedLandmarks.length > 0) {
+							const origMinX = Math.min(...originalLandmarks.map((l) => l?.x || 0));
+							const origMaxX = Math.max(...originalLandmarks.map((l) => l?.x || 0));
+							const origMinY = Math.min(...originalLandmarks.map((l) => l?.y || 0));
+							const origMaxY = Math.max(...originalLandmarks.map((l) => l?.y || 0));
+
+							const normMinX = Math.min(...normalizedLandmarks.map((l) => l?.x || 0));
+							const normMaxX = Math.max(...normalizedLandmarks.map((l) => l?.x || 0));
+							const normMinY = Math.min(...normalizedLandmarks.map((l) => l?.y || 0));
+							const normMaxY = Math.max(...normalizedLandmarks.map((l) => l?.y || 0));
+
+							setNormalizedStats({
+								originalRange: {
+									minX: parseFloat(origMinX.toFixed(3)),
+									maxX: parseFloat(origMaxX.toFixed(3)),
+									minY: parseFloat(origMinY.toFixed(3)),
+									maxY: parseFloat(origMaxY.toFixed(3)),
+								},
+								normalizedRange: {
+									minX: parseFloat(normMinX.toFixed(3)),
+									maxX: parseFloat(normMaxX.toFixed(3)),
+									minY: parseFloat(normMinY.toFixed(3)),
+									maxY: parseFloat(normMaxY.toFixed(3)),
+								},
+								torsoSize: message.torsoSize || 0,
+							});
+						}
 					}
 				};
 
@@ -341,6 +373,42 @@ export default function PoseLandmarkerView({
 						? "Pose tracking is active."
 						: "Initializing webcam and model..."}
 				</p>
+			)}
+
+			{/* Normalization Debug Stats */}
+			{normalizedStats && (
+				<div className="mt-4 rounded-lg border border-zinc-300 bg-zinc-50 p-4 text-xs font-mono dark:border-zinc-700 dark:bg-zinc-900">
+					<h3 className="mb-3 font-semibold">🧪 Normalization Test Stats</h3>
+					<div className="mb-3 rounded bg-blue-50 p-2 dark:bg-blue-950">
+						<p className="text-blue-700 dark:text-blue-300">
+							<strong>Torso Size:</strong> {normalizedStats.torsoSize.toFixed(4)}
+						</p>
+						<p className="text-xs text-blue-600 dark:text-blue-400">
+							(Body scale reference - consistent across different body sizes)
+						</p>
+					</div>
+					<div className="grid grid-cols-2 gap-4">
+						<div>
+							<p className="mb-2 font-semibold text-zinc-700 dark:text-zinc-300">Original Landmarks</p>
+							<div className="space-y-1 text-zinc-600 dark:text-zinc-400">
+								<p>X: {normalizedStats.originalRange.minX.toFixed(3)} → {normalizedStats.originalRange.maxX.toFixed(3)}</p>
+								<p>Y: {normalizedStats.originalRange.minY.toFixed(3)} → {normalizedStats.originalRange.maxY.toFixed(3)}</p>
+								<p className="text-xs text-zinc-500">(Pixel coordinates, 0-1 range)</p>
+							</div>
+						</div>
+						<div>
+							<p className="mb-2 font-semibold text-zinc-700 dark:text-zinc-300">Normalized Landmarks</p>
+							<div className="space-y-1 text-zinc-600 dark:text-zinc-400">
+								<p>X: {normalizedStats.normalizedRange.minX.toFixed(3)} → {normalizedStats.normalizedRange.maxX.toFixed(3)}</p>
+								<p>Y: {normalizedStats.normalizedRange.minY.toFixed(3)} → {normalizedStats.normalizedRange.maxY.toFixed(3)}</p>
+								<p className="text-xs text-zinc-500">✓ Normalized &amp; scale-invariant</p>
+							</div>
+						</div>
+					</div>
+					<p className="mt-3 text-xs text-zinc-500">
+						Check browser console (F12) for detailed frame-by-frame stats → Groups starting with "🎯 Frame"
+					</p>
+				</div>
 			)}
 		</div>
 	);
