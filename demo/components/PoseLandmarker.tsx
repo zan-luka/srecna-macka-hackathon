@@ -111,14 +111,14 @@ const defaultPoseOverlay: OverlayRenderer = ({
 			landmarks,
 			PoseLandmarker.POSE_CONNECTIONS,
 			{
-				color: "#22d3ee",
+				color: "#fff",
 				lineWidth: 3,
 			},
 		);
 
 		drawingUtils.drawLandmarks(landmarks, {
-			color: "#f97316",
-			fillColor: "#f97316",
+			color: "#fff",
+			fillColor: "#22d3ee",
 			lineWidth: 1.5,
 			radius: 4,
 		});
