@@ -46,9 +46,9 @@ const EXERCISE_PLAN: ExercisePlanItem[] = [
 	{ name: "Bodyweight Squats", repetitions: 10 },
 ];
 
-const POSE_DETECTION_CONFIDENCE = 0.5;
-const POSE_PRESENCE_CONFIDENCE = 0.5;
-const TRACKING_CONFIDENCE = 0.5;
+const POSE_DETECTION_CONFIDENCE = 0.7;
+const POSE_PRESENCE_CONFIDENCE = 0.7;
+const TRACKING_CONFIDENCE = 0.7;
 
 type PoseWorkerMessage = {
 	type: "landmarks";
@@ -133,6 +133,9 @@ async function createPoseLandmarkerWithFallback(vision: Awaited<ReturnType<typeo
       baseOptions: { modelAssetPath: modelPath, delegate: "GPU" },
       runningMode: "VIDEO",
       numPoses: 1,
+	  minPoseDetectionConfidence: POSE_DETECTION_CONFIDENCE,
+	  minPosePresenceConfidence: POSE_PRESENCE_CONFIDENCE,
+	  minTrackingConfidence: TRACKING_CONFIDENCE,
     });
   } catch {
     console.log("GPU delegate failed to initialize, falling back to CPU.");
@@ -140,6 +143,9 @@ async function createPoseLandmarkerWithFallback(vision: Awaited<ReturnType<typeo
       baseOptions: { modelAssetPath: modelPath, delegate: "CPU" },
       runningMode: "VIDEO",
       numPoses: 1,
+	  minPoseDetectionConfidence: POSE_DETECTION_CONFIDENCE,
+	  minPosePresenceConfidence: POSE_PRESENCE_CONFIDENCE,
+	  minTrackingConfidence: TRACKING_CONFIDENCE,
     });
   }
 }
