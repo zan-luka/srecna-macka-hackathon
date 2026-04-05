@@ -54,8 +54,11 @@ export default function PoseLandmarkerView({
 	const [remainingUnit, setRemainingUnit] = useState<"seconds" | "repetitions">("seconds");
 	const [normalizedStats, setNormalizedStats] = useState<NormalizedStats | null>(null);
 	const [latestWorkerMessage, setLatestWorkerMessage] = useState<NormalizedLandmarksMessage | null>(null);
+	const [overlayLatencyMs, setOverlayLatencyMs] = useState<number | null>(null);
 	const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const overlayLatencyEwmaRef = useRef<number | null>(null);
+	const lastLatencyPublishRef = useRef(0);
 
 	const currentExercise = EXERCISE_PLAN[exerciseIndex] ?? null;
 	const hasExercises = EXERCISE_PLAN.length > 0;
@@ -186,6 +189,8 @@ export default function PoseLandmarkerView({
 
 	useEffect(() => {
 		let isMounted = true;
+		const latencyPublishIntervalMs = 150;
+		const latencyEwmaAlpha = 0.2;
 
 		const stopLoop = () => {
 			if (rafRef.current !== null) {
@@ -258,10 +263,11 @@ export default function PoseLandmarkerView({
 			}
 
 			if (video.currentTime !== lastVideoTimeRef.current) {
+				const captureStartedAt = performance.now();
 				lastVideoTimeRef.current = video.currentTime;
 				frameIndexRef.current += 1;
 
-				const result = detector.detectForVideo(video, performance.now());
+				const result = detector.detectForVideo(video, captureStartedAt);
 
 				ctx.clearRect(0, 0, canvas.width, canvas.height);
 				const drawingUtils = new DrawingUtils(ctx);
@@ -274,6 +280,20 @@ export default function PoseLandmarkerView({
 						width: canvas.width,
 						height: canvas.height,
 					});
+				}
+
+				const overlayRenderedAt = performance.now();
+				const measuredLatency = overlayRenderedAt - captureStartedAt;
+				const previousEwma = overlayLatencyEwmaRef.current;
+				const smoothedLatency =
+					previousEwma === null
+						? measuredLatency
+						: previousEwma + latencyEwmaAlpha * (measuredLatency - previousEwma);
+				overlayLatencyEwmaRef.current = smoothedLatency;
+
+				if (overlayRenderedAt - lastLatencyPublishRef.current >= latencyPublishIntervalMs) {
+					lastLatencyPublishRef.current = overlayRenderedAt;
+					setOverlayLatencyMs(smoothedLatency);
 				}
 
 				if (workerRef.current && frameIndexRef.current % captureInterval === 0) {
@@ -292,6 +312,9 @@ export default function PoseLandmarkerView({
 		const start = async () => {
 			try {
 				setError(null);
+				overlayLatencyEwmaRef.current = null;
+				lastLatencyPublishRef.current = 0;
+				setOverlayLatencyMs(null);
 
 				const video = videoRef.current;
 				if (!video) {
@@ -359,6 +382,7 @@ export default function PoseLandmarkerView({
 		return () => {
 			isMounted = false;
 			setIsReady(false);
+			setOverlayLatencyMs(null);
 			teardown();
 		};
 	}, [activeOverlays, captureInterval, modelPath]);
@@ -429,6 +453,7 @@ export default function PoseLandmarkerView({
 					countdownRemaining={countdownRemaining}
 					remainingValue={remainingValue}
 					remainingUnit={remainingUnit}
+					overlayLatencyMs={overlayLatencyMs}
 					onExit={handleExit}
 				/>
 			</div>
@@ -448,7 +473,8 @@ export default function PoseLandmarkerView({
 			{showNormalizationStats ? (
 				<NormalizationStatsPanel normalizedStats={normalizedStats} />
 			) : null}
-		<JointAnglesPanel message={latestWorkerMessage} />		</div>
+			<JointAnglesPanel message={latestWorkerMessage} />
+		</div>
 	);
 }
 

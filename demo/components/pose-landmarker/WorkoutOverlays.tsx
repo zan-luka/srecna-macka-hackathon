@@ -7,6 +7,7 @@ type WorkoutOverlaysProps = {
 	countdownRemaining: number;
 	remainingValue: number;
 	remainingUnit: RemainingUnit;
+	overlayLatencyMs: number | null;
 	onExit: () => void;
 };
 
@@ -17,10 +18,18 @@ export function WorkoutOverlays({
 	countdownRemaining,
 	remainingValue,
 	remainingUnit,
+	overlayLatencyMs,
 	onExit,
 }: WorkoutOverlaysProps) {
 	return (
 		<>
+			{overlayLatencyMs !== null && (
+				<div className="absolute bottom-3 left-3 rounded-xl border border-sky-200/70 bg-sky-50/90 px-3 py-2 text-xs font-medium text-sky-950 shadow-lg backdrop-blur">
+					<p className="uppercase tracking-wide text-sky-700">Overlay delay</p>
+					<p className="text-sm font-semibold">{overlayLatencyMs.toFixed(1)} ms</p>
+				</div>
+			)}
+
 			{sessionState === "running" &&
 				exercisePhase === "countdown" &&
 				currentExercise && (
