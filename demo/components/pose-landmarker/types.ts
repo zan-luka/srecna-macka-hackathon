@@ -60,6 +60,14 @@ export type PoseWorkerInboundMessage =
 	| PoseWorkerMessage
 	| ExerciseStartedWorkerMessage;
 
+export type JointAngle = {
+	name: string;
+	point1Index: number;
+	jointIndex: number;
+	point2Index: number;
+	angle: number; 
+};
+
 export type NormalizedLandmarksMessage = {
 	type: "normalized_landmarks";
 	frameIndex: number;
@@ -67,6 +75,7 @@ export type NormalizedLandmarksMessage = {
 	originalLandmarks: Array<Array<Landmark>>;
 	normalizedLandmarks: Array<Array<Landmark>>;
 	torsoSize?: number;
+	jointAngles?: Array<Array<JointAngle>>; 
 };
 
 export type PoseWorkerInstance = {

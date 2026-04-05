@@ -22,6 +22,7 @@ import type {
 	NormalizedStats,
 } from "./pose-landmarker/types";
 import { NormalizationStatsPanel } from "./pose-landmarker/NormalizationStatsPanel";
+import { JointAnglesPanel } from "./pose-landmarker/JointAnglesPanel";
 import { WorkoutOverlays } from "./pose-landmarker/WorkoutOverlays";
 import { createPoseWorker } from "./pose-landmarker/workerClient";
 
@@ -52,6 +53,7 @@ export default function PoseLandmarkerView({
 	const [remainingValue, setRemainingValue] = useState(0);
 	const [remainingUnit, setRemainingUnit] = useState<"seconds" | "repetitions">("seconds");
 	const [normalizedStats, setNormalizedStats] = useState<NormalizedStats | null>(null);
+	const [latestWorkerMessage, setLatestWorkerMessage] = useState<NormalizedLandmarksMessage | null>(null);
 	const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -316,6 +318,7 @@ export default function PoseLandmarkerView({
 				workerRef.current.onmessage = (event: MessageEvent<NormalizedLandmarksMessage>) => {
 					const message = event.data;
 					if (message.type === "normalized_landmarks") {
+						setLatestWorkerMessage(message);
 						setNormalizedStats(getNormalizedStats(message));
 					}
 				};
@@ -445,7 +448,7 @@ export default function PoseLandmarkerView({
 			{showNormalizationStats ? (
 				<NormalizationStatsPanel normalizedStats={normalizedStats} />
 			) : null}
-		</div>
+		<JointAnglesPanel message={latestWorkerMessage} />		</div>
 	);
 }
 

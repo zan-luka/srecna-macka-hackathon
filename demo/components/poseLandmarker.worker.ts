@@ -1,5 +1,6 @@
 // import { getLandmarkStats, normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import { normalizeLandmarks } from "./pose-landmarker/workerNormalization";
+import { calculateJointAngles } from "./pose-landmarker/jointAngles";
 import type { PoseWorkerInboundMessage } from "./pose-landmarker/types";
 
 self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>) => {
@@ -24,6 +25,11 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 	const normalizedLandmarks = normalizedResults.map((r) => r.landmarks);
 	const torsoSize = normalizedResults[0]?.torsoSize || 0;
 
+	// Calculate joint angles from original landmarks
+	const jointAngles = message.landmarks.map((personLandmarks) =>
+		calculateJointAngles(personLandmarks),
+	);
+
 	/*
 	// Get statistics for comparison
 	const originalStats = message.landmarks.map((lm) => getLandmarkStats(lm));
@@ -44,7 +50,7 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 	console.groupEnd();
 	*/
 
-	// Send normalized landmarks back to main thread if needed
+	// Send normalized landmarks and joint angles back to main thread
 	self.postMessage({
 		type: "normalized_landmarks",
 		frameIndex: message.frameIndex,
@@ -52,6 +58,7 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		originalLandmarks: message.landmarks,
 		normalizedLandmarks: normalizedLandmarks,
 		torsoSize: torsoSize,
+		jointAngles: jointAngles,
 	});
 });
 
