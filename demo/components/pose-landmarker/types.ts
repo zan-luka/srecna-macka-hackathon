@@ -23,6 +23,7 @@ export type PoseLandmarkerProps = {
 	captureEveryNthFrame?: number;
 	sessionState?: SessionState;
 	onExit?: () => void;
+	showNormalizationStats?: boolean;
 };
 
 export type ExercisePlanItem = {

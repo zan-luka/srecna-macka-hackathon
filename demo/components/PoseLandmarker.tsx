@@ -32,6 +32,7 @@ export default function PoseLandmarkerView({
 	captureEveryNthFrame = DEFAULT_CAPTURE_EVERY_NTH_FRAME,
 	sessionState = "idle",
 	onExit,
+	showNormalizationStats = false,
 }: PoseLandmarkerProps) {
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -405,10 +406,10 @@ export default function PoseLandmarkerView({
 
 	return (
 		<div className={className}>
-			<div className="relative w-full overflow-hidden rounded-xl bg-black">
+			<div className="relative w-full overflow-hidden rounded-[1.75rem] border border-amber-100/90 bg-zinc-950 shadow-2xl shadow-orange-200/60 ring-1 ring-black/5">
 				<video
 					ref={videoRef}
-					className="h-auto w-full"
+					className="h-full min-h-[20rem] w-full object-cover sm:min-h-[24rem] lg:min-h-[30rem]"
 					playsInline
 					muted
 					autoPlay
@@ -430,16 +431,20 @@ export default function PoseLandmarkerView({
 			</div>
 
 			{error ? (
-				<p className="mt-3 text-sm text-red-600">{error}</p>
+				<p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+					{error}
+				</p>
 			) : (
-				<p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+				<p className="mt-3 rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2 text-sm text-amber-950/90">
 					{isReady
-						? "Pose tracking is active."
+						? "Camera and pose tracking are active. Keep your full body in frame."
 						: "Initializing webcam and model..."}
 				</p>
 			)}
 
-			<NormalizationStatsPanel normalizedStats={normalizedStats} />
+			{showNormalizationStats ? (
+				<NormalizationStatsPanel normalizedStats={normalizedStats} />
+			) : null}
 		</div>
 	);
 }
