@@ -1,7 +1,43 @@
 // import { getLandmarkStats, normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import { normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import { calculateJointAngles } from "./pose-landmarker/jointAngles";
+import { createKNNClassifier, parseTrainingCsv, type KNNClassifier } from "./pose-landmarker/knnClassifier";
 import type { PoseWorkerInboundMessage } from "./pose-landmarker/types";
+
+let classifier: KNNClassifier | null = null;
+let classifierStatus: "loading" | "ready" | "error" = "loading";
+let classifierInitPromise: Promise<void> | null = null;
+
+async function ensureClassifierReady() {
+	if (classifierStatus === "ready" || classifierStatus === "error") {
+		return;
+	}
+
+	if (!classifierInitPromise) {
+		classifierInitPromise = (async () => {
+			try {
+				const response = await fetch("/api/training-data");
+				if (!response.ok) {
+					throw new Error(`Failed to load training data (${response.status})`);
+				}
+
+				const csvText = await response.text();
+				const samples = parseTrainingCsv(csvText);
+				classifier = createKNNClassifier(samples);
+				classifierStatus = "ready";
+				console.log(`✅ Exercise classifier ready (${classifier.sampleCount} samples, ${classifier.labels.length} labels)`);
+			} catch (error) {
+				classifierStatus = "error";
+				const message = error instanceof Error ? error.message : "Unknown classifier error";
+				console.error(`❌ Failed to initialize classifier: ${message}`);
+			}
+		})();
+	}
+
+	await classifierInitPromise;
+}
+
+void ensureClassifierReady();
 
 self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>) => {
 	const message = event.data;
@@ -29,6 +65,15 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 	const jointAngles = message.landmarks.map((personLandmarks) =>
 		calculateJointAngles(personLandmarks),
 	);
+
+	if (classifierStatus === "loading") {
+		void ensureClassifierReady();
+	}
+
+	const predictions =
+		classifierStatus === "ready" && classifier
+			? message.landmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
+			: message.landmarks.map(() => null);
 
 	/*
 	// Get statistics for comparison
@@ -59,6 +104,8 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		normalizedLandmarks: normalizedLandmarks,
 		torsoSize: torsoSize,
 		jointAngles: jointAngles,
+		predictions,
+		classifierStatus,
 	});
 });
 

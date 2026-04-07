@@ -68,6 +68,12 @@ export type JointAngle = {
 	angle: number; 
 };
 
+export type ExercisePrediction = {
+	label: string;
+	confidence: number;
+	distance: number;
+};
+
 export type NormalizedLandmarksMessage = {
 	type: "normalized_landmarks";
 	frameIndex: number;
@@ -75,7 +81,9 @@ export type NormalizedLandmarksMessage = {
 	originalLandmarks: Array<Array<Landmark>>;
 	normalizedLandmarks: Array<Array<Landmark>>;
 	torsoSize?: number;
-	jointAngles?: Array<Array<JointAngle>>; 
+	jointAngles?: Array<Array<JointAngle>>;
+	predictions?: Array<ExercisePrediction | null>;
+	classifierStatus?: "loading" | "ready" | "error";
 };
 
 export type PoseWorkerInstance = {
