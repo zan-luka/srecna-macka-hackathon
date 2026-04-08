@@ -2,11 +2,15 @@
 import { normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import { calculateJointAngles } from "./pose-landmarker/jointAngles";
 import { createKNNClassifier, parseTrainingCsv, type KNNClassifier } from "./pose-landmarker/knnClassifier";
+import { PoseRecorder, type RecordingMetadata } from "./pose-landmarker/poseRecorder";
 import type { PoseWorkerInboundMessage } from "./pose-landmarker/types";
 
 let classifier: KNNClassifier | null = null;
 let classifierStatus: "loading" | "ready" | "error" = "loading";
 let classifierInitPromise: Promise<void> | null = null;
+let recorder = new PoseRecorder();
+let isRecording = false;
+let recordingMetadata: RecordingMetadata | null = null;
 
 async function ensureClassifierReady() {
 	if (classifierStatus === "ready" || classifierStatus === "error") {
@@ -42,6 +46,30 @@ void ensureClassifierReady();
 self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>) => {
 	const message = event.data;
 
+	if (message.type === "recording_start") {
+		recorder = new PoseRecorder();
+		recorder.startRecording(message.exerciseName || "Unknown Exercise");
+		isRecording = true;
+		console.log(`📹 Recording started for: ${message.exerciseName}`);
+		return;
+	}
+
+	if (message.type === "recording_stop") {
+		recordingMetadata = recorder.stopRecording();
+		isRecording = false;
+		const stats = recorder.getStats();
+		console.log(`📊 Recording stats:`, stats);
+		// Send recording data back to main thread
+		const binaryData = recorder.exportAsBinary(recordingMetadata);
+		self.postMessage({
+			type: "recording_data",
+			metadata: recordingMetadata,
+			stats: stats,
+			buffer: binaryData,
+		});
+		return;
+	}
+
 	if (message.type === "exercise_started") {
 		console.log(
 			`🏁 Exercise started: ${message.exerciseName} (${message.mode === "duration" ? `${message.target}s` : `${message.target} reps`})`,
@@ -51,6 +79,11 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 
 	if (message.type !== "landmarks") {
 		return;
+	}
+
+	// Record frame if recording is active
+	if (isRecording) {
+		recorder.recordFrame(message.frameIndex, message.timestamp, message.landmarks);
 	}
 
 	// Normalize landmarks for each person detected
@@ -106,6 +139,7 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		jointAngles: jointAngles,
 		predictions,
 		classifierStatus,
+		recordingFrameCount: isRecording ? recorder.getFrameCount() : undefined,
 	});
 });
 

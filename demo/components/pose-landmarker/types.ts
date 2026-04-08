@@ -56,9 +56,15 @@ export type ExerciseStartedWorkerMessage = {
 	target: number;
 };
 
+export type RecordingControlMessage = {
+	type: "recording_start" | "recording_stop";
+	exerciseName?: string;
+};
+
 export type PoseWorkerInboundMessage =
 	| PoseWorkerMessage
-	| ExerciseStartedWorkerMessage;
+	| ExerciseStartedWorkerMessage
+	| RecordingControlMessage;
 
 export type JointAngle = {
 	name: string;
@@ -84,6 +90,7 @@ export type NormalizedLandmarksMessage = {
 	jointAngles?: Array<Array<JointAngle>>;
 	predictions?: Array<ExercisePrediction | null>;
 	classifierStatus?: "loading" | "ready" | "error";
+	recordingFrameCount?: number;
 };
 
 export type PoseWorkerInstance = {

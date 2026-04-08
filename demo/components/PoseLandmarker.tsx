@@ -23,8 +23,10 @@ import type {
 } from "./pose-landmarker/types";
 import { NormalizationStatsPanel } from "./pose-landmarker/NormalizationStatsPanel";
 import { JointAnglesPanel } from "./pose-landmarker/JointAnglesPanel";
+import { RecordingPanel } from "./pose-landmarker/RecordingPanel";
 import { WorkoutOverlays } from "./pose-landmarker/WorkoutOverlays";
 import { createPoseWorker } from "./pose-landmarker/workerClient";
+import type { RecordingMetadata } from "./pose-landmarker/poseRecorder";
 
 export default function PoseLandmarkerView({
 	className,
@@ -55,6 +57,19 @@ export default function PoseLandmarkerView({
 	const [normalizedStats, setNormalizedStats] = useState<NormalizedStats | null>(null);
 	const [latestWorkerMessage, setLatestWorkerMessage] = useState<NormalizedLandmarksMessage | null>(null);
 	const [overlayLatencyMs, setOverlayLatencyMs] = useState<number | null>(null);
+	const [isRecording, setIsRecording] = useState(false);
+	const [recordingData, setRecordingData] = useState<{
+		frameCount: number;
+		duration?: number;
+		stats?: {
+			frameCount: number;
+			duration: number;
+			avgFPS: number;
+			recordedPeople: number;
+		};
+		metadata?: RecordingMetadata;
+		buffer?: ArrayBuffer;
+	} | null>(null);
 	const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const overlayLatencyEwmaRef = useRef<number | null>(null);
@@ -337,12 +352,24 @@ export default function PoseLandmarkerView({
 				video.srcObject = mediaStream;
 				workerRef.current = createPoseWorker();
 
-				// Set up listener for normalized landmarks from worker
-				workerRef.current.onmessage = (event: MessageEvent<NormalizedLandmarksMessage>) => {
+				// Set up listener for messages from worker
+				workerRef.current.onmessage = (event: MessageEvent) => {
 					const message = event.data;
 					if (message.type === "normalized_landmarks") {
-						setLatestWorkerMessage(message);
-						setNormalizedStats(getNormalizedStats(message));
+						const nlm = message as NormalizedLandmarksMessage;
+						setLatestWorkerMessage(nlm);
+						setNormalizedStats(getNormalizedStats(nlm));
+					} else if (message.type === "recording_data") {
+						// Handle recording export
+						const { metadata, stats, buffer } = message;
+						setRecordingData({
+							frameCount: metadata.frameCount,
+							duration: metadata.duration,
+							stats,
+							metadata,
+							buffer,
+						});
+						console.log(`✅ Recording exported: ${metadata.frameCount} frames`);
 					}
 				};
 
@@ -426,8 +453,35 @@ export default function PoseLandmarkerView({
 		currentExercise,
 	]);
 
+	// Handle recording based on exercise state
+	useEffect(() => {
+		if (!workerRef.current) {
+			return;
+		}
+
+		if (exercisePhase === "active" && sessionState === "running") {
+			// Start recording when exercise becomes active
+			setIsRecording(true);
+			setRecordingData(null);
+			workerRef.current.postMessage({
+				type: "recording_start",
+				exerciseName: currentExercise?.name || "Unknown",
+			});
+		} else if (exercisePhase === "finished" || (isRecording && sessionState !== "running")) {
+			// Stop recording when exercise finishes or session is paused
+			setIsRecording(false);
+			workerRef.current.postMessage({
+				type: "recording_stop",
+			});
+		}
+	}, [exercisePhase, sessionState, currentExercise, isRecording]);
+
 	const handleExit = () => {
 		resetWorkoutState();
+		if (isRecording && workerRef.current) {
+			workerRef.current.postMessage({ type: "recording_stop" });
+			setIsRecording(false);
+		}
 		onExit?.();
 	};
 
@@ -455,6 +509,13 @@ export default function PoseLandmarkerView({
 					remainingUnit={remainingUnit}
 					overlayLatencyMs={overlayLatencyMs}
 					onExit={handleExit}
+				/>
+
+				<RecordingPanel
+					isRecording={isRecording}
+					recordingData={recordingData}
+					exerciseName={currentExercise?.name}
+					message={latestWorkerMessage}
 				/>
 			</div>
 
