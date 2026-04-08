@@ -1,4 +1,10 @@
 import { normalizeLandmarks } from "./workerNormalization";
+import {
+	KNN_UNKNOWN_DISTANCE_FALLBACK,
+	KNN_UNKNOWN_DISTANCE_MARGIN,
+	KNN_UNKNOWN_DISTANCE_MIN,
+	KNN_UNKNOWN_DISTANCE_PERCENTILE,
+} from "./constants";
 import type { ExercisePrediction, Landmark } from "./types";
 
 type TrainingSample = {
@@ -10,6 +16,7 @@ export type KNNClassifier = {
 	predict: (landmarks: Landmark[]) => ExercisePrediction | null;
 	labels: string[];
 	sampleCount: number;
+	unknownDistanceThreshold: number;
 };
 
 const DEFAULT_K = 5;
@@ -48,6 +55,59 @@ function squaredEuclideanDistance(a: number[], b: number[]): number {
 		total += diff * diff;
 	}
 	return total;
+}
+
+function percentile(sortedValues: number[], p: number): number {
+	if (sortedValues.length === 0) {
+		return KNN_UNKNOWN_DISTANCE_FALLBACK;
+	}
+
+	const clampedP = Math.max(0, Math.min(1, p));
+	const index = Math.floor((sortedValues.length - 1) * clampedP);
+	return sortedValues[index] ?? KNN_UNKNOWN_DISTANCE_FALLBACK;
+}
+
+function estimateUnknownDistanceThreshold(samples: TrainingSample[]): number {
+	if (samples.length < 2) {
+		return KNN_UNKNOWN_DISTANCE_FALLBACK;
+	}
+
+	const nearestDistances: number[] = [];
+
+	for (let i = 0; i < samples.length; i += 1) {
+		let nearestDistanceSquared = Number.POSITIVE_INFINITY;
+		const source = samples[i];
+
+		for (let j = 0; j < samples.length; j += 1) {
+			if (i === j) {
+				continue;
+			}
+
+			const candidate = samples[j];
+			const distanceSquared = squaredEuclideanDistance(source.vector, candidate.vector);
+			if (distanceSquared < nearestDistanceSquared) {
+				nearestDistanceSquared = distanceSquared;
+			}
+		}
+
+		if (Number.isFinite(nearestDistanceSquared)) {
+			nearestDistances.push(Math.sqrt(nearestDistanceSquared));
+		}
+	}
+
+	if (nearestDistances.length === 0) {
+		return KNN_UNKNOWN_DISTANCE_FALLBACK;
+	}
+
+	nearestDistances.sort((a, b) => a - b);
+	const base = percentile(nearestDistances, KNN_UNKNOWN_DISTANCE_PERCENTILE);
+	const threshold = base * KNN_UNKNOWN_DISTANCE_MARGIN;
+
+	if (!Number.isFinite(threshold) || threshold <= 0) {
+		return KNN_UNKNOWN_DISTANCE_FALLBACK;
+	}
+
+	return Math.max(KNN_UNKNOWN_DISTANCE_MIN, threshold);
 }
 
 export function parseTrainingCsv(csvText: string): TrainingSample[] {
@@ -98,10 +158,12 @@ export function parseTrainingCsv(csvText: string): TrainingSample[] {
 export function createKNNClassifier(samples: TrainingSample[], k = DEFAULT_K): KNNClassifier {
 	const labels = [...new Set(samples.map((sample) => sample.label))].sort();
 	const effectiveK = Math.max(1, Math.min(k, samples.length));
+	const unknownDistanceThreshold = estimateUnknownDistanceThreshold(samples);
 
 	return {
 		labels,
 		sampleCount: samples.length,
+		unknownDistanceThreshold,
 		predict: (landmarks: Landmark[]) => {
 			if (samples.length === 0) {
 				return null;
@@ -119,6 +181,15 @@ export function createKNNClassifier(samples: TrainingSample[], k = DEFAULT_K): K
 				}))
 				.sort((a, b) => a.distanceSquared - b.distanceSquared)
 				.slice(0, effectiveK);
+
+			const nearestDistance = Math.sqrt(nearest[0]?.distanceSquared ?? Number.POSITIVE_INFINITY);
+			if (!Number.isFinite(nearestDistance) || nearestDistance > unknownDistanceThreshold) {
+				return {
+					label: "unknown",
+					confidence: 0,
+					distance: nearestDistance,
+				};
+			}
 
 			const votes = new Map<string, { count: number; bestDistanceSquared: number }>();
 			for (const neighbor of nearest) {
