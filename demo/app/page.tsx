@@ -6,6 +6,7 @@ import { EXERCISE_PLAN } from "@/components/pose-landmarker/exercisePlan";
 
 export default function Home() {
 	const [sessionState, setSessionState] = useState<"idle" | "running" | "paused">("idle");
+  const [showControls, setShowControls] = useState(true);
 
 	const handleStart = () => {
 		setSessionState("running");
@@ -38,15 +39,15 @@ export default function Home() {
       <button
         type="button"
         onClick={handleStart}
-        className="inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+        className="inline-flex min-h-10 items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
       >
-        Start session
+        Start
       </button>
       <button
         type="button"
         onClick={handlePause}
         disabled={sessionState === "idle"}
-        className="inline-flex min-h-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-100 px-5 py-2.5 text-sm font-semibold text-orange-900 transition hover:bg-orange-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-orange-200 bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-900 transition hover:bg-orange-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {sessionState === "paused" ? "Resume" : "Pause"}
       </button>
@@ -54,85 +55,62 @@ export default function Home() {
         type="button"
         onClick={handleExit}
         disabled={sessionState === "idle"}
-        className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-900 transition hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        End session
+        End
       </button>
     </>
   );
 
   return (
-    <div className="min-h-screen px-3 py-4 sm:px-5 sm:py-6 lg:px-8">
-      <main className="mx-auto w-full max-w-7xl">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-6">
-          <section className="space-y-4">
-            <div className="rounded-2xl border border-gray-200 bg-white/85 px-4 py-3 shadow-sm backdrop-blur sm:px-5 lg:hidden">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-600">
-                    Personal Coach
-                  </p>
-                  <h1 className="text-lg font-semibold text-gray-900">Move with confidence</h1>
-                </div>
-                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${stateClassName}`}>
-                  {stateLabel}
-                </span>
-              </div>
-            </div>
+    <div className="relative h-screen w-screen overflow-hidden bg-zinc-950">
+      <PoseLandmarkerView
+        className="h-full w-full"
+        sessionState={sessionState}
+        onExit={handleExit}
+      />
 
-            <PoseLandmarkerView
-              className="w-full"
-              sessionState={sessionState}
-              onExit={handleExit}
-            />
-
-            <div className="rounded-2xl border border-gray-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur lg:hidden">
-              <p className="mb-3 text-sm font-medium text-gray-600">Session controls</p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{renderControls()}</div>
-            </div>
-          </section>
-
-          <aside className="hidden h-fit space-y-4 lg:block">
-            <div className="rounded-2xl border border-gray-200 bg-white/90 p-5 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-600">Personal Coach</p>
-              <h1 className="mt-1 text-2xl font-semibold text-gray-900">Train smarter at home</h1>
-              <p className="mt-2 text-sm text-gray-600">
-                Keep your full body visible and follow the prompts over the camera feed.
-              </p>
-              <div className="mt-4 flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-                <span className="text-sm font-medium text-gray-600">Session status</span>
-                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${stateClassName}`}>
-                  {stateLabel}
-                </span>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white/90 p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-gray-900">Controls</h2>
-              <div className="mt-3 grid gap-2">{renderControls()}</div>
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white/90 p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-gray-900">Today&apos;s routine</h2>
-              <ul className="mt-3 space-y-2">
-                {EXERCISE_PLAN.map((exercise) => (
-                  <li
-                    key={exercise.name}
-                    className="rounded-xl border border-gray-200 bg-white/90 px-3 py-2 text-sm text-gray-800"
-                  >
-                    <p className="font-medium">{exercise.name}</p>
-                    <p className="text-xs text-gray-600">
-                      {typeof exercise.durationSeconds === "number"
-                        ? `${exercise.durationSeconds} seconds`
-                        : `${exercise.repetitions ?? 0} repetitions`}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </aside>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 p-3 sm:p-4">
+        <div className="ml-auto flex w-fit gap-2">
+          <button
+            type="button"
+            onClick={() => setShowControls((previous) => !previous)}
+            className="pointer-events-auto rounded-xl border border-gray-200/80 bg-gray-50/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-lg backdrop-blur transition hover:bg-gray-100"
+          >
+            {showControls ? "Hide controls" : "Show controls"}
+          </button>
         </div>
-      </main>
+
+        {showControls ? (
+          <div className="pointer-events-auto mt-2 rounded-2xl border border-gray-200/80 bg-white/88 p-3 shadow-xl backdrop-blur sm:p-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-600">
+                Personal Coach
+              </p>
+              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${stateClassName}`}>
+                {stateLabel}
+              </span>
+              <div className="ml-auto flex flex-wrap gap-2">{renderControls()}</div>
+            </div>
+
+            <ul className="mt-3 grid max-h-28 grid-cols-1 gap-2 overflow-auto pr-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+              {EXERCISE_PLAN.map((exercise) => (
+                <li
+                  key={exercise.name}
+                  className="rounded-lg border border-gray-200/90 bg-white/85 px-2.5 py-2 text-gray-800"
+                >
+                  <p className="font-semibold">{exercise.name}</p>
+                  <p className="text-[11px] text-gray-600">
+                    {typeof exercise.durationSeconds === "number"
+                      ? `${exercise.durationSeconds} seconds`
+                      : `${exercise.repetitions ?? 0} repetitions`}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -432,18 +432,20 @@ export default function PoseLandmarkerView({
 	};
 
 	return (
-		<div className={className}>
-			<div className="relative w-full overflow-hidden rounded-[1.75rem] border border-gray-200/90 bg-zinc-950 shadow-2xl shadow-teal-200/30 ring-1 ring-black/5">
+		<div className={`relative h-full w-full ${className ?? ""}`}>
+			<div
+				className="relative h-full w-full overflow-hidden border border-gray-200/90 bg-zinc-950 shadow-2xl shadow-teal-200/30 ring-1 ring-black/5"
+			>
 				<video
 					ref={videoRef}
-					className="h-full min-h-[20rem] w-full object-cover sm:min-h-[24rem] lg:min-h-[30rem]"
+					className="h-full w-full object-cover"
 					playsInline
 					muted
 					autoPlay
 				/>
 				<canvas
 					ref={canvasRef}
-					className="pointer-events-none absolute inset-0 h-full w-full"
+					className="pointer-events-none absolute inset-0 h-full w-full object-cover"
 				/>
 
 				<WorkoutOverlays
@@ -456,19 +458,19 @@ export default function PoseLandmarkerView({
 					overlayLatencyMs={overlayLatencyMs}
 					onExit={handleExit}
 				/>
-			</div>
 
-			{error ? (
-				<p className="mt-3 rounded-xl border border-orange-400 bg-orange-100 px-3 py-2 text-sm font-medium text-orange-600">
-					{error}
-				</p>
-			) : (
-				<p className="mt-3 rounded-xl border border-orange-100 bg-orange-50/70 px-3 py-2 text-sm text-orange-900/90">
-					{isReady
-						? "Camera and pose tracking are active. Keep your full body in frame."
-						: "Initializing webcam and model..."}
-				</p>
-			)}
+				{error ? (
+					<p className="absolute bottom-3 left-1/2 z-20 w-[min(92%,40rem)] -translate-x-1/2 rounded-xl border border-orange-400 bg-orange-100 px-3 py-2 text-center text-sm font-medium text-orange-700 shadow-lg backdrop-blur">
+						{error}
+					</p>
+				) : (
+					<p className="absolute bottom-3 left-1/2 z-20 w-[min(92%,40rem)] -translate-x-1/2 rounded-xl border border-orange-100 bg-orange-50/80 px-3 py-2 text-center text-sm text-orange-900/90 shadow-lg backdrop-blur">
+						{isReady
+							? "Camera and pose tracking are active. Keep your full body in frame."
+							: "Initializing webcam and model..."}
+					</p>
+				)}
+			</div>
 
 			{showNormalizationStats ? (
 				<NormalizationStatsPanel normalizedStats={normalizedStats} />
