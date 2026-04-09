@@ -7,7 +7,7 @@ let cachedCsv: string | null = null;
 export async function GET() {
 	try {
 		if (!cachedCsv) {
-			const csvPath = path.resolve(process.cwd(), "..", "fitness_poses_csvs_out.csv");
+			const csvPath = path.resolve(process.cwd(), "fitness_poses_csvs_out.csv");
 			cachedCsv = await readFile(csvPath, "utf8");
 		}
 

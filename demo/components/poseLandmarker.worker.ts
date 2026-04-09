@@ -29,7 +29,9 @@ async function ensureClassifierReady() {
 				const samples = parseTrainingCsv(csvText);
 				classifier = createKNNClassifier(samples);
 				classifierStatus = "ready";
-				console.log(`✅ Exercise classifier ready (${classifier.sampleCount} samples, ${classifier.labels.length} labels)`);
+				console.log(
+					`✅ Exercise classifier ready (${classifier.sampleCount} samples, ${classifier.labels.length} labels, unknown threshold=${classifier.unknownDistanceThreshold.toFixed(3)})`,
+				);
 			} catch (error) {
 				classifierStatus = "error";
 				const message = error instanceof Error ? error.message : "Unknown classifier error";
