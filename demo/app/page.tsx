@@ -6,7 +6,7 @@ import { EXERCISE_PLAN } from "@/components/pose-landmarker/exercisePlan";
 
 export default function Home() {
 	const [sessionState, setSessionState] = useState<"idle" | "running" | "paused">("idle");
-  const [showControls, setShowControls] = useState(true);
+  const [showControls, setShowControls] = useState(false);
 
 	const handleStart = () => {
 		setSessionState("running");
