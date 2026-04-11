@@ -71,7 +71,7 @@ export default function Home() {
       />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-40 p-3 sm:p-4">
-        <div className="ml-auto flex w-fit gap-2">
+        <div className="flex justify-center w-fit gap-2 mx-auto">
           <button
             type="button"
             onClick={() => setShowControls((previous) => !previous)}

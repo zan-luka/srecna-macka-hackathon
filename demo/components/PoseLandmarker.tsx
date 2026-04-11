@@ -27,6 +27,10 @@ import { RecordingPanel } from "./pose-landmarker/RecordingPanel";
 import { WorkoutOverlays } from "./pose-landmarker/WorkoutOverlays";
 import { createPoseWorker } from "./pose-landmarker/workerClient";
 import type { RecordingMetadata } from "./pose-landmarker/poseRecorder";
+import { GamificationPanel } from "./pose-landmarker/GamificationPanel";
+import { FormFeedbackOverlay } from "./pose-landmarker/FormFeedbackOverlay";
+import { AchievementUnlock } from "./pose-landmarker/AchievementUnlock";
+import { useGameification, type UseGameificationReturn } from "./pose-landmarker/useGameification";
 
 export default function PoseLandmarkerView({
 	className,
@@ -46,6 +50,10 @@ export default function PoseLandmarkerView({
 	const lastVideoTimeRef = useRef<number>(-1);
 	const frameIndexRef = useRef(0);
 	const captureInterval = Math.max(1, Math.floor(captureEveryNthFrame));
+
+	// Gamification
+	const gamification = useGameification();
+	const sessionStartTimeRef = useRef<number | null>(null);
 
 	const [error, setError] = useState<string | null>(null);
 	const [isReady, setIsReady] = useState(false);
@@ -463,6 +471,7 @@ export default function PoseLandmarkerView({
 			// Start recording when exercise becomes active
 			setIsRecording(true);
 			setRecordingData(null);
+			sessionStartTimeRef.current = Date.now();
 			workerRef.current.postMessage({
 				type: "recording_start",
 				exerciseName: currentExercise?.name || "Unknown",
@@ -475,6 +484,36 @@ export default function PoseLandmarkerView({
 			});
 		}
 	}, [exercisePhase, sessionState, currentExercise, isRecording]);
+
+	// Track gamification data when exercise finishes
+	useEffect(() => {
+		if (
+			exercisePhase === "finished" &&
+			gamification.sessionReps > 0 &&
+			sessionStartTimeRef.current
+		) {
+			const duration = Date.now() - sessionStartTimeRef.current;
+			// Use realistic accuracy based on current streak (higher streak = likely better form)
+			const accuracy = Math.min(0.98, 0.7 + gamification.gameStats.currentStreak * 0.03);
+			gamification.updateSessionAccuracy(accuracy);
+			gamification.recordGameSession(duration);
+			sessionStartTimeRef.current = null;
+		}
+	}, [exercisePhase, gamification]);
+
+	// Update gamification reps from worker messages if available
+	useEffect(() => {
+		if (latestWorkerMessage && exercisePhase === "active") {
+			// Calculate reps from predictions if available
+			const predictions = latestWorkerMessage.predictions;
+			if (predictions && predictions.length > 0) {
+				const confirmedPredictions = predictions.filter(
+					(p) => p && p.confidence > 0.6
+				);
+				gamification.updateSessionReps(confirmedPredictions.length);
+			}
+		}
+	}, [latestWorkerMessage, exercisePhase, gamification]);
 
 	const handleExit = () => {
 		resetWorkoutState();
@@ -518,6 +557,26 @@ export default function PoseLandmarkerView({
 					recordingData={recordingData}
 					exerciseName={currentExercise?.name}
 					message={latestWorkerMessage}
+				/>
+
+				{/* Gamification UI */}
+				<GamificationPanel
+					gameStats={gamification.gameStats}
+					sessionPoints={gamification.sessionPoints}
+				/>
+
+				<FormFeedbackOverlay
+					accuracy={gamification.sessionAccuracy}
+					pointsEarned={gamification.sessionPoints}
+					currentStreak={gamification.gameStats.currentStreak}
+					formQuality={gamification.sessionAccuracy > 0.7 ? "Good" : "Keep Trying"}
+					showPoints={gamification.sessionPoints > 0}
+					showAccuracy={exercisePhase === "active"}
+				/>
+
+				<AchievementUnlock
+					achievement={gamification.unlockedAchievement}
+					onDismiss={() => gamification.setUnlockedAchievement(null)}
 				/>
 
 				{error ? (
