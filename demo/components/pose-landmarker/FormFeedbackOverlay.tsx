@@ -23,41 +23,43 @@ export const FormFeedbackOverlay: React.FC<FormFeedbackOverlayProps> = ({
 
 	return (
 		<>
-			{/* Form Quality - Top Center */}
+			{/* Vertical feedback stack on the right side */}
+			
+			{/* Form Quality - Top of right stack */}
 			{formQuality && (
 				<div
-					className="fixed top-1 left-1/2 transform -translate-x-1/2 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg shadow-lg font-bold text-sm z-30 animate-bounce"
+					className="fixed top-16 right-3 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg shadow-lg font-bold text-sm z-30 animate-bounce"
 					style={{
 						animation: "bounce 0.6s ease-in-out infinite",
 					}}
 				>
-					Form Quality: {formQuality}
+					Form: {formQuality}
 				</div>
 			)}
 
-			{/* Accuracy Display - Left Side */}
+			{/* Accuracy Display - Below Form Quality */}
 			{showAccuracy && (
-				<div className="fixed top-24 left-3 bg-blue-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30">
-					Accuracy: {accuracyPercentage}%
+				<div className="fixed top-32 right-3 bg-blue-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30">
+					{accuracyPercentage}%
 				</div>
 			)}
 
-			{/* Points Display - Left Side, Stacked */}
+			{/* Points Display - Below Accuracy */}
 			{showPoints && pointsEarned > 0 && (
 				<div
-					className="fixed top-40 left-3 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg font-bold text-lg z-30 animate-bounce"
+					className="fixed top-48 right-3 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg font-bold text-lg z-30 animate-bounce"
 					style={{
 						animation: "bounce 0.8s ease-in-out infinite",
 					}}
 				>
-					+{pointsEarned} points!
+					+{pointsEarned}
 				</div>
 			)}
 
-			{/* Streak Indicator - Left Side, Bottom */}
+			{/* Streak Indicator - Bottom of right stack */}
 			{currentStreak > 0 && (
-				<div className="fixed bottom-20 left-3 bg-red-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30">
-					🔥 {currentStreak}-Day Streak!
+				<div className="fixed top-64 right-3 bg-red-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30">
+					🔥 {currentStreak}d
 				</div>
 			)}
 

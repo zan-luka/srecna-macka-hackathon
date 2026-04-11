@@ -71,45 +71,49 @@ export default function Home() {
       />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-40 p-3 sm:p-4">
-        <div className="flex justify-center w-fit gap-2 mx-auto">
+        {/* Always-visible control bar */}
+        <div className="pointer-events-auto mx-auto flex justify-center items-center gap-3 rounded-xl border border-gray-200/80 bg-white/90 px-4 py-3 shadow-lg backdrop-blur w-fit">
+          {/* Status badge */}
+          <span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${stateClassName}`}>
+            {stateLabel}
+          </span>
+
+          {/* Primary action buttons */}
+          <div className="flex gap-2">
+            {renderControls()}
+          </div>
+
+          {/* Toggle exercise plan */}
           <button
             type="button"
             onClick={() => setShowControls((previous) => !previous)}
-            className="pointer-events-auto rounded-xl border border-gray-200/80 bg-gray-50/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-lg backdrop-blur transition hover:bg-gray-100"
+            className="ml-2 rounded-lg border border-blue-200 bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-900 transition hover:bg-blue-200"
           >
-            {showControls ? "Hide controls" : "Show controls"}
+            {showControls ? "▼ Plan" : "▶ Plan"}
           </button>
         </div>
 
-        {showControls ? (
-          <div className="pointer-events-auto mt-2 rounded-2xl border border-gray-200/80 bg-white/88 p-3 shadow-xl backdrop-blur sm:p-4">
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-600">
-                Personal Coach
-              </p>
-              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${stateClassName}`}>
-                {stateLabel}
-              </span>
-              <div className="ml-auto flex flex-wrap gap-2">{renderControls()}</div>
-            </div>
-
-            <ul className="mt-3 grid max-h-28 grid-cols-1 gap-2 overflow-auto pr-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+        {/* Expandable exercise plan */}
+        {showControls && (
+          <div className="pointer-events-auto mt-2 rounded-xl border border-gray-200/80 bg-white/88 p-3 shadow-xl backdrop-blur sm:p-4 mx-auto w-fit max-w-2xl">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-gray-700 mb-2">Workout Plan</h3>
+            <ul className="grid max-h-40 grid-cols-1 gap-2 overflow-auto pr-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
               {EXERCISE_PLAN.map((exercise) => (
                 <li
                   key={exercise.name}
-                  className="rounded-lg border border-gray-200/90 bg-white/85 px-2.5 py-2 text-gray-800"
+                  className="rounded-lg border border-gray-200/90 bg-gradient-to-br from-gray-50 to-gray-100 px-3 py-2 text-gray-800"
                 >
                   <p className="font-semibold">{exercise.name}</p>
-                  <p className="text-[11px] text-gray-600">
+                  <p className="text-[11px] text-gray-600 mt-1">
                     {typeof exercise.durationSeconds === "number"
-                      ? `${exercise.durationSeconds} seconds`
-                      : `${exercise.repetitions ?? 0} repetitions`}
+                      ? `⏱️ ${exercise.durationSeconds}s`
+                      : `🔁 ${exercise.repetitions ?? 0} reps`}
                   </p>
                 </li>
               ))}
             </ul>
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
