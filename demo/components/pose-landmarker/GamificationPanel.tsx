@@ -15,7 +15,7 @@ export const GamificationPanel: React.FC<GamificationPanelProps> = ({ gameStats,
 	const sessionPointsDisplay = sessionPoints > 0 ? `+${sessionPoints}` : "";
 
 	return (
-		<div className="fixed right-3 top-80 z-40 font-sans">
+		<div className="fixed right-3 top-64 z-40 font-sans">
 			<button
 				onClick={() => setIsOpen(!isOpen)}
 				className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-lg font-semibold transition-colors"

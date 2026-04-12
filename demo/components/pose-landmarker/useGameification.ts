@@ -26,49 +26,69 @@ export interface UseGameificationReturn {
 	updateSessionAccuracy: (accuracy: number) => void;
 	updateSessionReps: (reps: number) => void;
 	recordGameSession: (duration: number) => void;
-	setUnlockedAchievement: (achievement: any | null) => void;
+	setUnlockedAchievement: (achievement: { id: string; name: string; icon: string; description: string } | null) => void;
 }
 
 export function useGameification(): UseGameificationReturn {
-	const [gameStats, setGameStats] = useState<GameStats>({
-		totalPoints: 0,
-		level: 1,
-		currentStreak: 0,
-		longestStreak: 0,
-		totalSessions: 0,
-		totalReps: 0,
-		averageAccuracy: 0,
-		achievements: [],
-		lastSessionDate: 0,
-		createdAt: Date.now(),
+	const [gameStats, setGameStats] = useState<GameStats>(() => {
+		// Load from localStorage on client-side initialization
+		if (typeof window !== "undefined") {
+			const saved = loadGameStats();
+			if (saved.totalSessions > 0 || saved.totalPoints > 0) {
+				return saved;
+			}
+		}
+		return {
+			totalPoints: 0,
+			level: 1,
+			currentStreak: 0,
+			longestStreak: 0,
+			totalSessions: 0,
+			totalReps: 0,
+			averageAccuracy: 0,
+			achievements: [],
+			lastSessionDate: 0,
+			createdAt: Date.now(),
+		};
 	});
 
 	const [sessionPoints, setSessionPoints] = useState(0);
 	const [sessionAccuracy, setSessionAccuracy] = useState(0);
 	const [sessionReps, setSessionReps] = useState(0);
-	const [unlockedAchievement, setUnlockedAchievement] = useState<any | null>(null);
+	const [unlockedAchievement, setUnlockedAchievement] = useState<{
+		id: string;
+		name: string;
+		icon: string;
+		description: string;
+	} | null>(null);
 
-	const lastSaveTime = useRef(Date.now());
+	const lastSaveTime = useRef(0);
 	const sessionStartTimeRef = useRef<number | null>(null);
+	const gameStatsRef = useRef(gameStats);
 
-	// Initialize game stats from localStorage (client-side only)
+	// Initialize refs on mount
 	useEffect(() => {
-		const stats = loadGameStats();
-		setGameStats(stats);
+		gameStatsRef.current = gameStats;
 		sessionStartTimeRef.current = Date.now();
+		lastSaveTime.current = Date.now();
 	}, []);
+
+	// Keep gameStatsRef in sync with gameStats
+	useEffect(() => {
+		gameStatsRef.current = gameStats;
+	}, [gameStats]);
 
 	// Auto-save to localStorage every 5 seconds
 	useEffect(() => {
 		const interval = setInterval(() => {
 			if (Date.now() - lastSaveTime.current > 5000) {
-				saveGameStats(gameStats);
+				saveGameStats(gameStatsRef.current);
 				lastSaveTime.current = Date.now();
 			}
 		}, 5000);
 
 		return () => clearInterval(interval);
-	}, [gameStats]);
+	}, []);
 
 	const updateSessionAccuracy = (accuracy: number) => {
 		setSessionAccuracy(accuracy);
