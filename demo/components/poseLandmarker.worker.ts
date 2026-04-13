@@ -3,7 +3,8 @@ import { normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import { calculateJointAngles } from "./pose-landmarker/jointAngles";
 import { createKNNClassifier, parseTrainingCsv, type KNNClassifier } from "./pose-landmarker/knnClassifier";
 import { PoseRecorder, type RecordingMetadata } from "./pose-landmarker/poseRecorder";
-import type { PoseWorkerInboundMessage } from "./pose-landmarker/types";
+import { createOneEuroFilters, type OneEuroFilter } from "./pose-landmarker/oneEuroFilter";
+import type { ExercisePrediction, JointAngle, PoseWorkerInboundMessage } from "./pose-landmarker/types";
 
 let classifier: KNNClassifier | null = null;
 let classifierStatus: "loading" | "ready" | "error" = "loading";
@@ -11,6 +12,9 @@ let classifierInitPromise: Promise<void> | null = null;
 let recorder = new PoseRecorder();
 let isRecording = false;
 let recordingMetadata: RecordingMetadata | null = null;
+let currentExerciseQualityParameters: Record<string, number> | null = null;
+let oneEuroFilters: OneEuroFilter[] = [];
+
 
 async function ensureClassifierReady() {
 	if (classifierStatus === "ready" || classifierStatus === "error") {
@@ -43,6 +47,45 @@ async function ensureClassifierReady() {
 	await classifierInitPromise;
 }
 
+function applyQualityGate(
+	prediction: ExercisePrediction | null
+): ExercisePrediction | null {
+	if (!prediction) {
+		return prediction;
+	}
+	
+	if (prediction.confidence < 0.78) {
+		return { ...prediction, label: "undefined" };
+	}
+	
+	return prediction;
+}
+
+function calculateAccuracyAndPredictions(prediction: ExercisePrediction | null, jointAngles: JointAngle[], qualityParameters: Record<string, number> | null): [ExercisePrediction | null, number] {
+	if (!prediction || !qualityParameters || prediction.label === "undefined") {
+		return [prediction, 0];
+	}
+
+	let totalAccuracy = 0;
+	let count = 0;
+
+	for (const [param, targetValue] of Object.entries(qualityParameters)) {
+		const angleData = jointAngles.find((a) => a.name === param);
+		if (!angleData) continue;
+
+		const deviation = Math.abs(angleData.angle - targetValue);
+		const tolerance = targetValue * 0.6;
+		totalAccuracy += Math.max(0, 1 - deviation / tolerance);
+		count++;
+	}
+
+	if (totalAccuracy < 0.2) {
+		return [{ ...prediction, label: "undefined" }, 0];
+	}
+
+	return [prediction, count > 0 ? totalAccuracy / count : 0];
+}
+
 void ensureClassifierReady();
 
 self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>) => {
@@ -73,8 +116,11 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 	}
 
 	if (message.type === "exercise_started") {
+		currentExerciseQualityParameters = message.qualityParameters ?? null;
+		// Reset filters for new exercise
+		oneEuroFilters = [];
 		console.log(
-			`🏁 Exercise started: ${message.exerciseName} (${message.mode === "duration" ? `${message.target}s` : `${message.target} reps`})`,
+			`🏁 Exercise started: ${message.exerciseName} (${message.mode === "duration" ? `${message.target}s` : `${message.target} reps`})${currentExerciseQualityParameters ? `, quality params: ${Object.keys(currentExerciseQualityParameters).join(", ")}` : ""}`,
 		);
 		return;
 	}
@@ -83,21 +129,54 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		return;
 	}
 
+	// Initialize filters on first frame if needed
+	if (oneEuroFilters.length === 0 && message.landmarks.length > 0) {
+		const landmarkCount = message.landmarks[0]?.length || 33; // MediaPipe has 33 landmarks per pose
+		oneEuroFilters = createOneEuroFilters(landmarkCount, {
+			minCutoff: 1.0,
+			beta: 0.1,
+			dCutoff: 1.0,
+		});
+	}
+
+	// Apply 1€ filter to smooth landmarks
+	const smoothedLandmarks = message.landmarks.map((personLandmarks) =>
+		personLandmarks.map((landmark, index) => {
+			if (index >= oneEuroFilters.length) {
+				return landmark; // Fallback if filter count doesn't match
+			}
+
+			const filtered = oneEuroFilters[index]!.filter(
+				landmark.x,
+				landmark.y,
+				landmark.z,
+				message.timestamp,
+			);
+
+			return {
+				...landmark,
+				x: filtered.x,
+				y: filtered.y,
+				z: filtered.z,
+			};
+		}),
+	);
+
 	// Record frame if recording is active
 	if (isRecording) {
-		recorder.recordFrame(message.frameIndex, message.timestamp, message.landmarks);
+		recorder.recordFrame(message.frameIndex, message.timestamp, smoothedLandmarks);
 	}
 
 	// Normalize landmarks for each person detected
-	const normalizedResults = message.landmarks.map((personLandmarks) =>
+	const normalizedResults = smoothedLandmarks.map((personLandmarks) =>
 		normalizeLandmarks(personLandmarks),
 	);
 
 	const normalizedLandmarks = normalizedResults.map((r) => r.landmarks);
 	const torsoSize = normalizedResults[0]?.torsoSize || 0;
 
-	// Calculate joint angles from original landmarks
-	const jointAngles = message.landmarks.map((personLandmarks) =>
+	// Calculate joint angles from smoothed landmarks
+	const jointAngles = normalizedLandmarks.map((personLandmarks) =>
 		calculateJointAngles(personLandmarks),
 	);
 
@@ -110,25 +189,10 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 			? message.landmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
 			: message.landmarks.map(() => null);
 
-	/*
-	// Get statistics for comparison
-	const originalStats = message.landmarks.map((lm) => getLandmarkStats(lm));
-	const normalizedStats = normalizedLandmarks.map((lm) => getLandmarkStats(lm));
+	//const filteredPredictions = applyQualityGate(predictions[0]);
 
-	
-	console.group(`🎯 Frame #${message.frameIndex} - Normalization Test`);
-	console.log("ORIGINAL LANDMARKS STATS:");
-	console.table(originalStats);
-	console.log("NORMALIZED LANDMARKS STATS:");
-	console.table(normalizedStats);
-	console.log("First landmark comparison (Nose):");
-	console.table({
-		Original: message.landmarks[0]?.[0],
-		Normalized: normalizedLandmarks[0]?.[0],
-	});
-	console.log(`Torso Size: ${torsoSize.toFixed(4)}`);
-	console.groupEnd();
-	*/
+	const [filteredPrediction, accuracy] = calculateAccuracyAndPredictions(predictions[0], jointAngles[0], currentExerciseQualityParameters);
+	accuracy > 0 && console.log("Calculated accuracy:", accuracy.toFixed(2));
 
 	// Send normalized landmarks and joint angles back to main thread
 	self.postMessage({
@@ -139,9 +203,10 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		normalizedLandmarks: normalizedLandmarks,
 		torsoSize: torsoSize,
 		jointAngles: jointAngles,
-		predictions,
+		predictions: [filteredPrediction], // Send as array for consistency
 		classifierStatus,
 		recordingFrameCount: isRecording ? recorder.getFrameCount() : undefined,
+		accuracy: accuracy,
 	});
 });
 

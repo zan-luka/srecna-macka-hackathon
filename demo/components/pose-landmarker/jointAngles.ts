@@ -29,8 +29,11 @@ export const COMMON_JOINT_ANGLES = {
 	LEFT_HIP: { point1: 25, joint: 23, point2: 11 }, // knee -> hip -> shoulder
 	RIGHT_HIP: { point1: 26, joint: 24, point2: 12 },
 
-	// Neck/Torso
+	// Neck
 	NECK: { point1: 11, joint: 0, point2: 12 }, // left shoulder -> nose -> right shoulder
+
+	// Torso
+	TORSO: { point1: 11, joint: 23, point2: 25 }, // left shoulder -> left hip -> left knee (approximates torso lean)
 } as const;
 
 /**
@@ -45,24 +48,27 @@ export const COMMON_JOINT_ANGLES = {
  * @returns Angle in degrees (0-180)
  */
 export function calculateAngle(point1: Landmark, joint: Landmark, point2: Landmark): number {
-	// Vector from joint to point1
-	const angle1 = Math.atan2(point1.y - joint.y, point1.x - joint.x);
-	// Vector from joint to point2
-	const angle2 = Math.atan2(point2.y - joint.y, point2.x - joint.x);
+    // 3D vectors from joint to each point
+    const v1 = {
+        x: point1.x - joint.x,
+        y: point1.y - joint.y,
+        z: (point1.z ?? 0) - (joint.z ?? 0),
+    };
+    const v2 = {
+        x: point2.x - joint.x,
+        y: point2.y - joint.y,
+        z: (point2.z ?? 0) - (joint.z ?? 0),
+    };
 
-	// Calculate the difference
-	let angle = angle2 - angle1;
+    const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    const mag1 = Math.sqrt(v1.x ** 2 + v1.y ** 2 + v1.z ** 2);
+    const mag2 = Math.sqrt(v2.x ** 2 + v2.y ** 2 + v2.z ** 2);
 
-	// Normalize to 0-360 range
-	angle = (angle * 180) / Math.PI;
-	angle = Math.abs(angle);
+    if (mag1 === 0 || mag2 === 0) return 0;
 
-	// Return angle between 0-180 (we always want the smaller angle)
-	if (angle > 180) {
-		angle = 360 - angle;
-	}
-
-	return Math.round(angle * 10) / 10; // Round to 1 decimal place
+    // Clamp to [-1, 1] to avoid NaN from floating point drift
+    const cosAngle = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.round(Math.acos(cosAngle) * (180 / Math.PI) * 10) / 10;
 }
 
 /**
@@ -138,7 +144,7 @@ export function isAngleInRange(
  * @param angles - Array of calculated joint angles
  * @param angleThresholds - Map of angle names to {min, max} degree ranges for the pose
  * @returns True if all specified angles are within their ranges, false otherwise
- */
+
 export function classifyPoseByAngles(
 	angles: JointAngle[],
 	angleThresholds: Record<string, { min: number; max: number }>,
@@ -158,45 +164,4 @@ export function classifyPoseByAngles(
 
 	return true; // All angle conditions met
 }
-
-/**
- * Exercise-specific angle thresholds for form validation.
- * Used for detecting proper exercise execution.
  */
-export const EXERCISE_ANGLES = {
-	// Squat: knee bent (< 100°) and hip bent (< 120°)
-	SQUAT_DOWN: {
-		LEFT_KNEE: { min: 40, max: 100 },
-		RIGHT_KNEE: { min: 40, max: 100 },
-		LEFT_HIP: { min: 60, max: 120 },
-		RIGHT_HIP: { min: 60, max: 120 },
-	},
-	SQUAT_UP: {
-		LEFT_KNEE: { min: 150, max: 180 },
-		RIGHT_KNEE: { min: 150, max: 180 },
-		LEFT_HIP: { min: 150, max: 180 },
-		RIGHT_HIP: { min: 150, max: 180 },
-	},
-
-	// Push-up: arm bent at elbow (< 100°) for down, straight (> 140°) for up
-	PUSHUP_DOWN: {
-		LEFT_ELBOW: { min: 40, max: 100 },
-		RIGHT_ELBOW: { min: 40, max: 100 },
-	},
-	PUSHUP_UP: {
-		LEFT_ELBOW: { min: 140, max: 180 },
-		RIGHT_ELBOW: { min: 140, max: 180 },
-	},
-
-	// Plank: arms straight (> 140°) and body aligned
-	PLANK: {
-		LEFT_ELBOW: { min: 140, max: 180 },
-		RIGHT_ELBOW: { min: 140, max: 180 },
-	},
-
-	// Jumping Jack: arms up (shoulder roughly horizontal)
-	JUMPING_JACK_UP: {
-		LEFT_SHOULDER: { min: 140, max: 180 },
-		RIGHT_SHOULDER: { min: 140, max: 180 },
-	},
-} as const;

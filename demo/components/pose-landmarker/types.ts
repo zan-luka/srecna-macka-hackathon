@@ -30,6 +30,7 @@ export type ExercisePlanItem = {
 	name: string;
 	repetitions?: number;
 	durationSeconds?: number;
+	qualityParameters?: Record<string, number>;
 };
 
 export type Landmark = {
@@ -54,6 +55,7 @@ export type ExerciseStartedWorkerMessage = {
 	exerciseName: string;
 	mode: "duration" | "repetitions";
 	target: number;
+	qualityParameters?: Record<string, number>;
 };
 
 export type RecordingControlMessage = {
@@ -91,6 +93,7 @@ export type NormalizedLandmarksMessage = {
 	predictions?: Array<ExercisePrediction | null>;
 	classifierStatus?: "loading" | "ready" | "error";
 	recordingFrameCount?: number;
+	accuracyValues?: number[]; // Accuracy scores for each person detected
 };
 
 export type PoseWorkerInstance = {
