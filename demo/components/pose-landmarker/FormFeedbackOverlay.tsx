@@ -5,6 +5,7 @@ import React from "react";
 export interface FormFeedbackOverlayProps {
 	accuracy: number;
 	pointsEarned: number;
+	totalSessionPoints: number;
 	currentStreak: number;
 	formQuality: string;
 	showPoints?: boolean;
@@ -14,6 +15,7 @@ export interface FormFeedbackOverlayProps {
 export const FormFeedbackOverlay: React.FC<FormFeedbackOverlayProps> = ({
 	accuracy,
 	pointsEarned,
+	totalSessionPoints,
 	currentStreak,
 	formQuality,
 	showPoints = true,
@@ -23,45 +25,65 @@ export const FormFeedbackOverlay: React.FC<FormFeedbackOverlayProps> = ({
 
 	return (
 		<>
+			{/* Total Session Points - Top Left Corner */}
+			<div
+				className="fixed top-16 left-3 px-4 py-3 bg-gradient-to-br from-yellow-400 to-amber-500 text-white rounded-lg shadow-lg font-bold text-lg z-30 flex items-center gap-2"
+				style={{
+					display: totalSessionPoints > 0 ? "flex" : "none",
+				}}
+				suppressHydrationWarning
+			>
+				<span>💰</span>
+				<span>{totalSessionPoints}</span>
+			</div>
+
 			{/* Form Quality - Right of center controls */}
-			{formQuality && (
-				<div
-					className="fixed top-12 left-1/2 translate-x-full ml-24 px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg shadow-lg font-bold text-xs z-30 animate-bounce"
-					style={{
-						animation: "bounce 0.6s ease-in-out infinite",
-					}}
-				>
-					Form: {formQuality}
-				</div>
-			)}
+			<div
+				className="fixed top-12 left-1/2 translate-x-full ml-24 px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg shadow-lg font-bold text-xs z-30 animate-bounce"
+				style={{
+					animation: "bounce 0.6s ease-in-out infinite",
+					display: formQuality ? "block" : "none",
+				}}
+				suppressHydrationWarning
+			>
+				Form: {formQuality}
+			</div>
 
 			{/* Vertical feedback stack on the right side */}
 			
 			{/* Accuracy Display - Top of right stack */}
-			{showAccuracy && (
-				<div className="fixed top-16 right-3 bg-blue-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30">
-					{accuracyPercentage}%
-				</div>
-			)}
+			<div
+				className="fixed top-16 right-3 bg-blue-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30"
+				style={{
+					display: showAccuracy ? "block" : "none",
+				}}
+				suppressHydrationWarning
+			>
+				{accuracyPercentage}%
+			</div>
 
 			{/* Points Display - Below Accuracy */}
-			{showPoints && pointsEarned > 0 && (
-				<div
-					className="fixed top-32 right-3 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg font-bold text-lg z-30 animate-bounce"
-					style={{
-						animation: "bounce 0.8s ease-in-out infinite",
-					}}
-				>
-					+{pointsEarned}
-				</div>
-			)}
+			<div
+				className="fixed top-32 right-3 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg font-bold text-lg z-30 animate-bounce"
+				style={{
+					animation: "bounce 0.8s ease-in-out infinite",
+					display: showPoints && pointsEarned > 0 ? "block" : "none",
+				}}
+				suppressHydrationWarning
+			>
+				+{pointsEarned}
+			</div>
 
 			{/* Streak Indicator - Below Points */}
-			{currentStreak > 0 && (
-				<div className="fixed top-48 right-3 bg-red-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30">
-					🔥 {currentStreak}d
-				</div>
-			)}
+			<div
+				className="fixed top-48 right-3 bg-red-500 text-white px-3 py-2 rounded-lg shadow-lg font-semibold text-sm z-30"
+				style={{
+					display: currentStreak > 0 ? "block" : "none",
+				}}
+				suppressHydrationWarning
+			>
+				🔥 {currentStreak}d
+			</div>
 
 			<style>{`
 				@keyframes bounce {

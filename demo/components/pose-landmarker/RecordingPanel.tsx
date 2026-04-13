@@ -31,9 +31,7 @@ export function RecordingPanel({
 	const [showExportOptions, setShowExportOptions] = useState(false);
 	const recorderRef = useRef(new PoseRecorder());
 
-	if (!isRecording && !recordingData) {
-		return null;
-	}
+	const shouldShow = isRecording || recordingData;
 
 	const frameCount = message?.recordingFrameCount ?? recordingData?.frameCount ?? 0;
 	const duration = recordingData?.duration ?? recordingData?.stats?.duration ?? 0;
@@ -103,7 +101,10 @@ export function RecordingPanel({
 	};
 
 	return (
-		<div className="absolute left-3 top-3 max-w-xs rounded-lg border border-cyan-200/70 bg-cyan-50/90 px-3 py-2 text-sm text-cyan-950 shadow-lg backdrop-blur">
+		<div
+			className="absolute left-3 top-3 max-w-xs rounded-lg border border-cyan-200/70 bg-cyan-50/90 px-3 py-2 text-sm text-cyan-950 shadow-lg backdrop-blur"
+			style={{ display: shouldShow ? "block" : "none" }}
+		>
 			<div className="flex items-center justify-between">
 				<div className="font-semibold">
 					{isRecording ? (

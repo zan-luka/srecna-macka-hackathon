@@ -95,7 +95,13 @@ export function useGameification(): UseGameificationReturn {
 	};
 
 	const updateSessionReps = (reps: number) => {
+		const previousReps = sessionReps;
 		setSessionReps(reps);
+		// Only calculate and award points if reps actually increased
+		if (reps > previousReps && sessionAccuracy > 0) {
+			const points = calculateSessionPoints(reps, sessionAccuracy, gameStats.currentStreak);
+			setSessionPoints(points);
+		}
 	};
 
 	const recordGameSession = (duration: number) => {
