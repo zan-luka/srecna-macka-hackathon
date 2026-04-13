@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 
 export interface AchievementUnlockProps {
 	achievement?: {
@@ -13,18 +13,8 @@ export interface AchievementUnlockProps {
 }
 
 export const AchievementUnlock: React.FC<AchievementUnlockProps> = ({ achievement, onDismiss }) => {
-	const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number }>>([]);
-
 	useEffect(() => {
 		if (!achievement) return;
-
-		// Create particle burst effect
-		const newParticles = Array.from({ length: 8 }, (_, i) => ({
-			id: i,
-			x: Math.cos((i / 8) * Math.PI * 2) * 100,
-			y: Math.sin((i / 8) * Math.PI * 2) * 100,
-		}));
-		setParticles(newParticles);
 
 		// Auto-dismiss after 4 seconds
 		const timer = setTimeout(() => {
@@ -32,9 +22,16 @@ export const AchievementUnlock: React.FC<AchievementUnlockProps> = ({ achievemen
 		}, 4000);
 
 		return () => clearTimeout(timer);
-	}, [achievement, onDismiss]);
+	}, [achievement]);
 
 	if (!achievement) return null;
+
+	// Derive particles during render instead of storing in state
+	const particles = Array.from({ length: 8 }, (_, i) => ({
+		id: i,
+		x: Math.cos((i / 8) * Math.PI * 2) * 100,
+		y: Math.sin((i / 8) * Math.PI * 2) * 100,
+	}));
 
 	return (
 		<div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">

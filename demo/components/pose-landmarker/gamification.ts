@@ -122,7 +122,7 @@ export function calculateSessionPoints(
 	currentStreak: number,
 ): number {
 	// Base points based on accuracy
-	let basePoints = accuracy >= 0.95 ? 100 : accuracy >= 0.9 ? 80 : accuracy >= 0.8 ? 60 : accuracy >= 0.7 ? 40 : 20;
+	const basePoints = accuracy >= 0.95 ? 100 : accuracy >= 0.9 ? 80 : accuracy >= 0.8 ? 60 : accuracy >= 0.7 ? 40 : 20;
 
 	// Reps bonus (5 points per rep)
 	const repsBonus = reps * 5;
