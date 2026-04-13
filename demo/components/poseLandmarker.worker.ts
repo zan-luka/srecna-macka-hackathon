@@ -3,6 +3,7 @@ import { normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import { calculateJointAngles } from "./pose-landmarker/jointAngles";
 import { createKNNClassifier, parseTrainingCsv, type KNNClassifier } from "./pose-landmarker/knnClassifier";
 import { PoseRecorder, type RecordingMetadata } from "./pose-landmarker/poseRecorder";
+import { createOneEuroFilters, type OneEuroFilter } from "./pose-landmarker/oneEuroFilter";
 import type { ExercisePrediction, JointAngle, PoseWorkerInboundMessage } from "./pose-landmarker/types";
 
 let classifier: KNNClassifier | null = null;
@@ -12,6 +13,7 @@ let recorder = new PoseRecorder();
 let isRecording = false;
 let recordingMetadata: RecordingMetadata | null = null;
 let currentExerciseQualityParameters: Record<string, number> | null = null;
+let oneEuroFilters: OneEuroFilter[] = [];
 
 const QUALITY_PARAMETER_TOLERANCE_DEGREES = 20;
 
@@ -163,6 +165,8 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 
 	if (message.type === "exercise_started") {
 		currentExerciseQualityParameters = message.qualityParameters ?? null;
+		// Reset filters for new exercise
+		oneEuroFilters = [];
 		console.log(
 			`🏁 Exercise started: ${message.exerciseName} (${message.mode === "duration" ? `${message.target}s` : `${message.target} reps`})${currentExerciseQualityParameters ? `, quality params: ${Object.keys(currentExerciseQualityParameters).join(", ")}` : ""}`,
 		);
@@ -173,21 +177,54 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		return;
 	}
 
+	// Initialize filters on first frame if needed
+	if (oneEuroFilters.length === 0 && message.landmarks.length > 0) {
+		const landmarkCount = message.landmarks[0]?.length || 33; // MediaPipe has 33 landmarks per pose
+		oneEuroFilters = createOneEuroFilters(landmarkCount, {
+			minCutoff: 1.0,
+			beta: 0.1,
+			dCutoff: 1.0,
+		});
+	}
+
+	// Apply 1€ filter to smooth landmarks
+	const smoothedLandmarks = message.landmarks.map((personLandmarks) =>
+		personLandmarks.map((landmark, index) => {
+			if (index >= oneEuroFilters.length) {
+				return landmark; // Fallback if filter count doesn't match
+			}
+
+			const filtered = oneEuroFilters[index]!.filter(
+				landmark.x,
+				landmark.y,
+				landmark.z,
+				message.timestamp,
+			);
+
+			return {
+				...landmark,
+				x: filtered.x,
+				y: filtered.y,
+				z: filtered.z,
+			};
+		}),
+	);
+
 	// Record frame if recording is active
 	if (isRecording) {
-		recorder.recordFrame(message.frameIndex, message.timestamp, message.landmarks);
+		recorder.recordFrame(message.frameIndex, message.timestamp, smoothedLandmarks);
 	}
 
 	// Normalize landmarks for each person detected
-	const normalizedResults = message.landmarks.map((personLandmarks) =>
+	const normalizedResults = smoothedLandmarks.map((personLandmarks) =>
 		normalizeLandmarks(personLandmarks),
 	);
 
 	const normalizedLandmarks = normalizedResults.map((r) => r.landmarks);
 	const torsoSize = normalizedResults[0]?.torsoSize || 0;
 
-	// Calculate joint angles from original landmarks
-	const jointAngles = message.landmarks.map((personLandmarks) =>
+	// Calculate joint angles from smoothed landmarks
+	const jointAngles = smoothedLandmarks.map((personLandmarks) =>
 		calculateJointAngles(personLandmarks),
 	);
 
@@ -197,8 +234,8 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 
 	const rawPredictions =
 		classifierStatus === "ready" && classifier
-			? message.landmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
-			: message.landmarks.map(() => null);
+			? smoothedLandmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
+			: smoothedLandmarks.map(() => null);
 
 	const predictions = rawPredictions.map((prediction, personIndex) =>
 		applyQualityGate(prediction, jointAngles[personIndex] ?? [], currentExerciseQualityParameters),
