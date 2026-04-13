@@ -261,16 +261,16 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		passesQualityParameters(prediction, jointAngles[personIndex] ?? [], currentExerciseQualityParameters),
 	);
 
-	const predictions = qualityResults.map((result) => {
+	const predictions = qualityResults.map((result, personIndex) => {
+		const rawPrediction = rawPredictions[personIndex];
 		if (!result.passes) {
 			return {
-				label: result.accuracy > 0 ? rawPredictions[qualityResults.indexOf(result)]?.label ?? "unknown" : "unknown",
+				label: result.accuracy > 0 ? rawPrediction?.label ?? "unknown" : "unknown",
 				confidence: 0,
-				distance: rawPredictions[qualityResults.indexOf(result)]?.distance ?? 0,
+				distance: rawPrediction?.distance ?? 0,
 			};
 		}
-		const index = qualityResults.indexOf(result);
-		return rawPredictions[index] ?? null;
+		return rawPrediction ?? null;
 	});
 
 	const accuracyValues = qualityResults.map((result) => result.accuracy);
