@@ -25,6 +25,11 @@ const QUALITY_PARAM_TO_ANGLE_NAME: Record<string, string> = {
 	bodyTilt: "TORSO",
 };
 
+type QualityParametersResult = {
+	passes: boolean;
+	accuracy: number; // 0-1 range
+};
+
 function resolveQualityTargetAngle(qualityParameterName: string, targetValue: number): number {
 	// bodyTilt in exercise plans is stored as deviation from upright (0 = upright).
 	// TORSO angle is measured as the hip joint angle (upright ~= 180°),
@@ -40,16 +45,17 @@ function passesQualityParameters(
 	prediction: ExercisePrediction | null,
 	jointAngles: JointAngle[],
 	qualityParameters: Record<string, number> | null,
-): boolean {
+): QualityParametersResult {
 	if (!prediction || prediction.label === "unknown") {
-		return false;
+		return { passes: false, accuracy: 0 };
 	}
 
 	if (!qualityParameters) {
-		return true;
+		return { passes: true, accuracy: 1 };
 	}
 
 	const angleMap = new Map(jointAngles.map((jointAngle) => [jointAngle.name, jointAngle.angle]));
+	const accuracyScores: number[] = [];
 
 	for (const [qualityParameterName, target] of Object.entries(qualityParameters)) {
 		const angleName = QUALITY_PARAM_TO_ANGLE_NAME[qualityParameterName];
@@ -59,16 +65,28 @@ function passesQualityParameters(
 
 		const actualAngle = angleMap.get(angleName);
 		if (actualAngle === undefined) {
-			return false;
+			return { passes: false, accuracy: 0 };
 		}
 
 		const targetAngle = resolveQualityTargetAngle(qualityParameterName, target);
-		if (Math.abs(actualAngle - targetAngle) > QUALITY_PARAMETER_TOLERANCE_DEGREES) {
-			return false;
+		const angleDifference = Math.abs(actualAngle - targetAngle);
+
+		// Calculate accuracy for this parameter: 0 at tolerance boundary, 1 at target
+		const paramAccuracy = Math.max(0, 1 - angleDifference / QUALITY_PARAMETER_TOLERANCE_DEGREES);
+		accuracyScores.push(paramAccuracy);
+
+		if (angleDifference > QUALITY_PARAMETER_TOLERANCE_DEGREES) {
+			// Still calculate accuracy for this parameter but mark overall as not passing
 		}
 	}
 
-	return true;
+	const overallAccuracy = accuracyScores.length > 0
+		? accuracyScores.reduce((sum, score) => sum + score, 0) / accuracyScores.length
+		: 1;
+
+	const passes = accuracyScores.every((score) => score > (1 - QUALITY_PARAMETER_TOLERANCE_DEGREES / QUALITY_PARAMETER_TOLERANCE_DEGREES));
+
+	return { passes, accuracy: overallAccuracy };
 }
 
 function applyQualityGate(
@@ -92,7 +110,9 @@ function applyQualityGate(
 		};
 	}
 
-	if (passesQualityParameters(prediction, jointAngles, qualityParameters)) {
+	const qualityResult = passesQualityParameters(prediction, jointAngles, qualityParameters);
+
+	if (qualityResult.passes) {
 		return prediction;
 	}
 
@@ -237,29 +257,23 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 			? smoothedLandmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
 			: smoothedLandmarks.map(() => null);
 
-	const predictions = rawPredictions.map((prediction, personIndex) =>
-		applyQualityGate(prediction, jointAngles[personIndex] ?? [], currentExerciseQualityParameters),
+	const qualityResults = rawPredictions.map((prediction, personIndex) =>
+		passesQualityParameters(prediction, jointAngles[personIndex] ?? [], currentExerciseQualityParameters),
 	);
 
-	/*
-	// Get statistics for comparison
-	const originalStats = message.landmarks.map((lm) => getLandmarkStats(lm));
-	const normalizedStats = normalizedLandmarks.map((lm) => getLandmarkStats(lm));
-
-	
-	console.group(`🎯 Frame #${message.frameIndex} - Normalization Test`);
-	console.log("ORIGINAL LANDMARKS STATS:");
-	console.table(originalStats);
-	console.log("NORMALIZED LANDMARKS STATS:");
-	console.table(normalizedStats);
-	console.log("First landmark comparison (Nose):");
-	console.table({
-		Original: message.landmarks[0]?.[0],
-		Normalized: normalizedLandmarks[0]?.[0],
+	const predictions = qualityResults.map((result) => {
+		if (!result.passes) {
+			return {
+				label: result.accuracy > 0 ? rawPredictions[qualityResults.indexOf(result)]?.label ?? "unknown" : "unknown",
+				confidence: 0,
+				distance: rawPredictions[qualityResults.indexOf(result)]?.distance ?? 0,
+			};
+		}
+		const index = qualityResults.indexOf(result);
+		return rawPredictions[index] ?? null;
 	});
-	console.log(`Torso Size: ${torsoSize.toFixed(4)}`);
-	console.groupEnd();
-	*/
+
+	const accuracyValues = qualityResults.map((result) => result.accuracy);
 
 	// Send normalized landmarks and joint angles back to main thread
 	self.postMessage({
@@ -273,6 +287,7 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		predictions,
 		classifierStatus,
 		recordingFrameCount: isRecording ? recorder.getFrameCount() : undefined,
+		accuracyValues,
 	});
 });
 

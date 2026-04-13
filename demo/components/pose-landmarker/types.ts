@@ -93,6 +93,7 @@ export type NormalizedLandmarksMessage = {
 	predictions?: Array<ExercisePrediction | null>;
 	classifierStatus?: "loading" | "ready" | "error";
 	recordingFrameCount?: number;
+	accuracyValues?: number[]; // Accuracy scores for each person detected
 };
 
 export type PoseWorkerInstance = {

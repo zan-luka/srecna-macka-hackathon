@@ -503,15 +503,12 @@ export default function PoseLandmarkerView({
 			sessionStartTimeRef.current
 		) {
 			const duration = Date.now() - sessionStartTimeRef.current;
-			// Use realistic accuracy based on current streak (higher streak = likely better form)
-			const accuracy = Math.min(0.98, 0.7 + gamification.gameStats.currentStreak * 0.03);
-			gamification.updateSessionAccuracy(accuracy);
 			gamification.recordGameSession(duration);
 			sessionStartTimeRef.current = null;
 		}
 	}, [exercisePhase, gamification]);
 
-	// Update gamification reps from worker messages if available
+	// Update gamification reps and accuracy from worker messages if available
 	useEffect(() => {
 		if (latestWorkerMessage && exercisePhase === "active") {
 			// Calculate reps from predictions if available
@@ -521,6 +518,13 @@ export default function PoseLandmarkerView({
 					(p) => p && p.confidence > 0.6
 				);
 				gamification.updateSessionReps(confirmedPredictions.length);
+			}
+
+			// Update accuracy from worker accuracy values
+			if (latestWorkerMessage.accuracyValues && latestWorkerMessage.accuracyValues.length > 0) {
+				// Use average accuracy across all detected people
+				const averageAccuracy = latestWorkerMessage.accuracyValues.reduce((sum, acc) => sum + acc, 0) / latestWorkerMessage.accuracyValues.length;
+				gamification.updateSessionAccuracy(averageAccuracy);
 			}
 		}
 	}, [latestWorkerMessage, exercisePhase, gamification]);
