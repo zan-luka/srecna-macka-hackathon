@@ -3,7 +3,7 @@ import { normalizeLandmarks } from "./pose-landmarker/workerNormalization";
 import { calculateJointAngles } from "./pose-landmarker/jointAngles";
 import { createKNNClassifier, parseTrainingCsv, type KNNClassifier } from "./pose-landmarker/knnClassifier";
 import { PoseRecorder, type RecordingMetadata } from "./pose-landmarker/poseRecorder";
-import type { PoseWorkerInboundMessage } from "./pose-landmarker/types";
+import type { ExercisePrediction, JointAngle, PoseWorkerInboundMessage } from "./pose-landmarker/types";
 
 let classifier: KNNClassifier | null = null;
 let classifierStatus: "loading" | "ready" | "error" = "loading";
@@ -11,6 +11,95 @@ let classifierInitPromise: Promise<void> | null = null;
 let recorder = new PoseRecorder();
 let isRecording = false;
 let recordingMetadata: RecordingMetadata | null = null;
+let currentExerciseQualityParameters: Record<string, number> | null = null;
+
+const QUALITY_PARAMETER_TOLERANCE_DEGREES = 20;
+
+const QUALITY_PARAM_TO_ANGLE_NAME: Record<string, string> = {
+	leftKnee: "LEFT_KNEE",
+	rightKnee: "RIGHT_KNEE",
+	leftElbow: "LEFT_ELBOW",
+	rightElbow: "RIGHT_ELBOW",
+	bodyTilt: "TORSO",
+};
+
+function resolveQualityTargetAngle(qualityParameterName: string, targetValue: number): number {
+	// bodyTilt in exercise plans is stored as deviation from upright (0 = upright).
+	// TORSO angle is measured as the hip joint angle (upright ~= 180°),
+	// so we convert by subtracting tilt from 180.
+	if (qualityParameterName === "bodyTilt") {
+		return 180 - targetValue;
+	}
+
+	return targetValue;
+}
+
+function passesQualityParameters(
+	prediction: ExercisePrediction | null,
+	jointAngles: JointAngle[],
+	qualityParameters: Record<string, number> | null,
+): boolean {
+	if (!prediction || prediction.label === "unknown") {
+		return false;
+	}
+
+	if (!qualityParameters) {
+		return true;
+	}
+
+	const angleMap = new Map(jointAngles.map((jointAngle) => [jointAngle.name, jointAngle.angle]));
+
+	for (const [qualityParameterName, target] of Object.entries(qualityParameters)) {
+		const angleName = QUALITY_PARAM_TO_ANGLE_NAME[qualityParameterName];
+		if (!angleName) {
+			continue;
+		}
+
+		const actualAngle = angleMap.get(angleName);
+		if (actualAngle === undefined) {
+			return false;
+		}
+
+		const targetAngle = resolveQualityTargetAngle(qualityParameterName, target);
+		if (Math.abs(actualAngle - targetAngle) > QUALITY_PARAMETER_TOLERANCE_DEGREES) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+function applyQualityGate(
+	prediction: ExercisePrediction | null,
+	jointAngles: JointAngle[],
+	qualityParameters: Record<string, number> | null,
+): ExercisePrediction | null {
+	if (!prediction) {
+		return null;
+	}
+
+	if (prediction.label === "unknown") {
+		return prediction;
+	}
+
+	if (prediction.confidence < 0.8) {
+		return {
+			label: "unknown",
+			confidence: prediction.confidence,
+			distance: prediction.distance,
+		};
+	}
+
+	if (passesQualityParameters(prediction, jointAngles, qualityParameters)) {
+		return prediction;
+	}
+
+	return {
+		label: "unknown",
+		confidence: 0,
+		distance: prediction.distance,
+	};
+}
 
 async function ensureClassifierReady() {
 	if (classifierStatus === "ready" || classifierStatus === "error") {
@@ -73,8 +162,9 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 	}
 
 	if (message.type === "exercise_started") {
+		currentExerciseQualityParameters = message.qualityParameters ?? null;
 		console.log(
-			`🏁 Exercise started: ${message.exerciseName} (${message.mode === "duration" ? `${message.target}s` : `${message.target} reps`})`,
+			`🏁 Exercise started: ${message.exerciseName} (${message.mode === "duration" ? `${message.target}s` : `${message.target} reps`})${currentExerciseQualityParameters ? `, quality params: ${Object.keys(currentExerciseQualityParameters).join(", ")}` : ""}`,
 		);
 		return;
 	}
@@ -105,10 +195,14 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		void ensureClassifierReady();
 	}
 
-	const predictions =
+	const rawPredictions =
 		classifierStatus === "ready" && classifier
 			? message.landmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
 			: message.landmarks.map(() => null);
+
+	const predictions = rawPredictions.map((prediction, personIndex) =>
+		applyQualityGate(prediction, jointAngles[personIndex] ?? [], currentExerciseQualityParameters),
+	);
 
 	/*
 	// Get statistics for comparison

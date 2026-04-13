@@ -1,4 +1,5 @@
 import { normalizeLandmarks } from "./workerNormalization";
+import { calculateJointAngles, COMMON_JOINT_ANGLES } from "./jointAngles";
 import {
 	KNN_UNKNOWN_DISTANCE_FALLBACK,
 	KNN_UNKNOWN_DISTANCE_MARGIN,
@@ -20,12 +21,19 @@ export type KNNClassifier = {
 };
 
 const DEFAULT_TOP_N_BY_MAX_DISTANCE = 30;
-const DEFAULT_TOP_N_BY_MEAN_DISTANCE = 10;
+const DEFAULT_TOP_N_BY_MEAN_DISTANCE = 5;
 const MIN_LANDMARK_COUNT = 33;
 
 // Matches the Python pipeline's axes_weights=(1.0, 1.0, 0.2).
 // Z is down-weighted because it's an estimated depth value and less reliable.
 const AXES_WEIGHTS = [1.0, 1.0, 0.2];
+
+// Number of joint angles included in the feature vector
+const NUM_JOINT_ANGLE_FEATURES = Object.keys(COMMON_JOINT_ANGLES).length;
+
+// Weight for angle features relative to distance features
+// Angles provide complementary information, so we weight them lower than spatial features
+const ANGLE_FEATURE_WEIGHT = 0.5;
 
 // Landmark indices for the 33 MediaPipe pose landmarks.
 // Must match the order in the Python pipeline's _landmark_names list.
@@ -144,8 +152,11 @@ function getPoseEmbedding(landmarks: Landmark[]): number[] | null {
 }
 
 /**
- * Builds the feature vector from raw (un-normalized) landmarks.
- * Normalization happens first (matching the Python pipeline), then embedding.
+ * Combines pose embedding (pairwise distances) with joint angle features.
+ * Joint angles provide rotation/scale invariance and capture pose shape directly.
+ *
+ * @param landmarks - Array of 33 MediaPipe pose landmarks
+ * @returns Combined feature vector with both distance and angle components
  */
 function toFeatureVector(landmarks: Landmark[]): number[] | null {
 	if (landmarks.length < MIN_LANDMARK_COUNT) {
@@ -157,7 +168,28 @@ function toFeatureVector(landmarks: Landmark[]): number[] | null {
 		return null;
 	}
 
-	return getPoseEmbedding(normalizedLandmarks as Landmark[]);
+	// Get pairwise distance embedding
+	const embedding = getPoseEmbedding(normalizedLandmarks as Landmark[]);
+	if (!embedding) {
+		return null;
+	}
+
+	// Get joint angles from normalized landmarks
+	const jointAngles = calculateJointAngles(normalizedLandmarks as Landmark[]);
+
+	// Extract angles in a consistent order (matching COMMON_JOINT_ANGLES keys)
+	const angleFeatures: number[] = [];
+	const angleOrder = Object.keys(COMMON_JOINT_ANGLES).sort(); // Consistent ordering
+
+	for (const angleName of angleOrder) {
+		const jointAngle = jointAngles.find((ja) => ja.name === angleName);
+		// Normalize angle to 0-1 range (angles are 0-180 degrees)
+		angleFeatures.push(jointAngle ? jointAngle.angle / 180 : 0.5);
+	}
+
+	// Combine: distances (primary) + angles (secondary)
+	// Angles are added with lower weight in distance calculations
+	return [...embedding, ...angleFeatures];
 }
 
 /**
@@ -165,6 +197,7 @@ function toFeatureVector(landmarks: Landmark[]): number[] | null {
  * Mirrors Python's use of `pose_landmarks * np.array([-1, 1, 1])` on the
  * already-normalized landmarks before re-embedding, which handles poses
  * where the person faces or moves in the opposite direction.
+ * Also includes joint angles which remain semantically meaningful after flipping.
  */
 function toFlippedFeatureVector(landmarks: Landmark[]): number[] | null {
 	if (landmarks.length < MIN_LANDMARK_COUNT) {
@@ -181,18 +214,49 @@ function toFlippedFeatureVector(landmarks: Landmark[]): number[] | null {
 		x: -lm.x,
 	}));
 
-	return getPoseEmbedding(flipped);
+	// Get pairwise distance embedding for flipped pose
+	const embedding = getPoseEmbedding(flipped);
+	if (!embedding) {
+		return null;
+	}
+
+	// Get joint angles from flipped landmarks (angles are invariant to horizontal flip)
+	const jointAngles = calculateJointAngles(flipped);
+
+	// Extract angles in consistent order
+	const angleFeatures: number[] = [];
+	const angleOrder = Object.keys(COMMON_JOINT_ANGLES).sort();
+
+	for (const angleName of angleOrder) {
+		const jointAngle = jointAngles.find((ja) => ja.name === angleName);
+		angleFeatures.push(jointAngle ? jointAngle.angle / 180 : 0.5);
+	}
+
+	return [...embedding, ...angleFeatures];
 }
 
 /**
  * Weighted absolute difference between two embedding vectors.
  * Weights cycle through AXES_WEIGHTS (x=1.0, y=1.0, z=0.2) per the Python
  * axes_weights=(1., 1., 0.2) parameter, down-weighting unreliable z depth.
+ * Angle features are weighted separately with ANGLE_FEATURE_WEIGHT to balance
+ * their contribution relative to spatial distance features.
  */
 function weightedAbsDiff(a: number[], b: number[]): number[] {
 	const result: number[] = new Array(a.length);
+	const numDistanceFeatures = a.length - NUM_JOINT_ANGLE_FEATURES;
+
 	for (let i = 0; i < a.length; i += 1) {
-		const weight = AXES_WEIGHTS[i % 3] ?? 1.0;
+		let weight: number;
+
+		if (i < numDistanceFeatures) {
+			// Distance features: use axes weights
+			weight = AXES_WEIGHTS[i % 3] ?? 1.0;
+		} else {
+			// Angle features: use angle weight (normalized angles are 0-1)
+			weight = ANGLE_FEATURE_WEIGHT;
+		}
+
 		result[i] = Math.abs((a[i] - b[i]) * weight);
 	}
 	return result;

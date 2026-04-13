@@ -29,8 +29,11 @@ export const COMMON_JOINT_ANGLES = {
 	LEFT_HIP: { point1: 25, joint: 23, point2: 11 }, // knee -> hip -> shoulder
 	RIGHT_HIP: { point1: 26, joint: 24, point2: 12 },
 
-	// Neck/Torso
+	// Neck
 	NECK: { point1: 11, joint: 0, point2: 12 }, // left shoulder -> nose -> right shoulder
+
+	// Torso
+	TORSO: { point1: 11, joint: 23, point2: 25 }, // left shoulder -> left hip -> left knee (approximates torso lean)
 } as const;
 
 /**
@@ -158,45 +161,3 @@ export function classifyPoseByAngles(
 
 	return true; // All angle conditions met
 }
-
-/**
- * Exercise-specific angle thresholds for form validation.
- * Used for detecting proper exercise execution.
- */
-export const EXERCISE_ANGLES = {
-	// Squat: knee bent (< 100°) and hip bent (< 120°)
-	SQUAT_DOWN: {
-		LEFT_KNEE: { min: 40, max: 100 },
-		RIGHT_KNEE: { min: 40, max: 100 },
-		LEFT_HIP: { min: 60, max: 120 },
-		RIGHT_HIP: { min: 60, max: 120 },
-	},
-	SQUAT_UP: {
-		LEFT_KNEE: { min: 150, max: 180 },
-		RIGHT_KNEE: { min: 150, max: 180 },
-		LEFT_HIP: { min: 150, max: 180 },
-		RIGHT_HIP: { min: 150, max: 180 },
-	},
-
-	// Push-up: arm bent at elbow (< 100°) for down, straight (> 140°) for up
-	PUSHUP_DOWN: {
-		LEFT_ELBOW: { min: 40, max: 100 },
-		RIGHT_ELBOW: { min: 40, max: 100 },
-	},
-	PUSHUP_UP: {
-		LEFT_ELBOW: { min: 140, max: 180 },
-		RIGHT_ELBOW: { min: 140, max: 180 },
-	},
-
-	// Plank: arms straight (> 140°) and body aligned
-	PLANK: {
-		LEFT_ELBOW: { min: 140, max: 180 },
-		RIGHT_ELBOW: { min: 140, max: 180 },
-	},
-
-	// Jumping Jack: arms up (shoulder roughly horizontal)
-	JUMPING_JACK_UP: {
-		LEFT_SHOULDER: { min: 140, max: 180 },
-		RIGHT_SHOULDER: { min: 140, max: 180 },
-	},
-} as const;

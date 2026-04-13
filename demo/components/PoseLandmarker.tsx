@@ -183,6 +183,7 @@ export default function PoseLandmarkerView({
 			exerciseName: currentExercise.name,
 			mode: isDurationExercise ? "duration" : "repetitions",
 			target: targetValue,
+			qualityParameters: currentExercise.qualityParameters,
 		});
 
 		activeIntervalRef.current = setInterval(() => {

@@ -30,6 +30,7 @@ export type ExercisePlanItem = {
 	name: string;
 	repetitions?: number;
 	durationSeconds?: number;
+	qualityParameters?: Record<string, number>;
 };
 
 export type Landmark = {
@@ -54,6 +55,7 @@ export type ExerciseStartedWorkerMessage = {
 	exerciseName: string;
 	mode: "duration" | "repetitions";
 	target: number;
+	qualityParameters?: Record<string, number>;
 };
 
 export type RecordingControlMessage = {
