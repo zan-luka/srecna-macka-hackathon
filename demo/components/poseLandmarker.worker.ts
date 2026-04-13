@@ -47,6 +47,45 @@ async function ensureClassifierReady() {
 	await classifierInitPromise;
 }
 
+function applyQualityGate(
+	prediction: ExercisePrediction | null
+): ExercisePrediction | null {
+	if (!prediction) {
+		return prediction;
+	}
+	
+	if (prediction.confidence < 0.78) {
+		return { ...prediction, label: "undefined" };
+	}
+	
+	return prediction;
+}
+
+function calculateAccuracyAndPredictions(prediction: ExercisePrediction | null, jointAngles: JointAngle[], qualityParameters: Record<string, number> | null): [ExercisePrediction | null, number] {
+	if (!prediction || !qualityParameters || prediction.label === "undefined") {
+		return [prediction, 0];
+	}
+
+	let totalAccuracy = 0;
+	let count = 0;
+
+	for (const [param, targetValue] of Object.entries(qualityParameters)) {
+		const angleData = jointAngles.find((a) => a.name === param);
+		if (!angleData) continue;
+
+		const deviation = Math.abs(angleData.angle - targetValue);
+		const tolerance = targetValue * 0.6;
+		totalAccuracy += Math.max(0, 1 - deviation / tolerance);
+		count++;
+	}
+
+	if (totalAccuracy < 0.2) {
+		return [{ ...prediction, label: "undefined" }, 0];
+	}
+
+	return [prediction, count > 0 ? totalAccuracy / count : 0];
+}
+
 void ensureClassifierReady();
 
 self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>) => {
@@ -137,7 +176,7 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 	const torsoSize = normalizedResults[0]?.torsoSize || 0;
 
 	// Calculate joint angles from smoothed landmarks
-	const jointAngles = smoothedLandmarks.map((personLandmarks) =>
+	const jointAngles = normalizedLandmarks.map((personLandmarks) =>
 		calculateJointAngles(personLandmarks),
 	);
 
@@ -150,6 +189,11 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 			? message.landmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
 			: message.landmarks.map(() => null);
 
+	//const filteredPredictions = applyQualityGate(predictions[0]);
+
+	const [filteredPrediction, accuracy] = calculateAccuracyAndPredictions(predictions[0], jointAngles[0], currentExerciseQualityParameters);
+	accuracy > 0 && console.log("Calculated accuracy:", accuracy.toFixed(2));
+
 	// Send normalized landmarks and joint angles back to main thread
 	self.postMessage({
 		type: "normalized_landmarks",
@@ -159,9 +203,10 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		normalizedLandmarks: normalizedLandmarks,
 		torsoSize: torsoSize,
 		jointAngles: jointAngles,
-		predictions,
+		predictions: [filteredPrediction], // Send as array for consistency
 		classifierStatus,
 		recordingFrameCount: isRecording ? recorder.getFrameCount() : undefined,
+		accuracy: accuracy,
 	});
 });
 

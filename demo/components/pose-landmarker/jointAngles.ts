@@ -48,24 +48,27 @@ export const COMMON_JOINT_ANGLES = {
  * @returns Angle in degrees (0-180)
  */
 export function calculateAngle(point1: Landmark, joint: Landmark, point2: Landmark): number {
-	// Vector from joint to point1
-	const angle1 = Math.atan2(point1.y - joint.y, point1.x - joint.x);
-	// Vector from joint to point2
-	const angle2 = Math.atan2(point2.y - joint.y, point2.x - joint.x);
+    // 3D vectors from joint to each point
+    const v1 = {
+        x: point1.x - joint.x,
+        y: point1.y - joint.y,
+        z: (point1.z ?? 0) - (joint.z ?? 0),
+    };
+    const v2 = {
+        x: point2.x - joint.x,
+        y: point2.y - joint.y,
+        z: (point2.z ?? 0) - (joint.z ?? 0),
+    };
 
-	// Calculate the difference
-	let angle = angle2 - angle1;
+    const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    const mag1 = Math.sqrt(v1.x ** 2 + v1.y ** 2 + v1.z ** 2);
+    const mag2 = Math.sqrt(v2.x ** 2 + v2.y ** 2 + v2.z ** 2);
 
-	// Normalize to 0-360 range
-	angle = (angle * 180) / Math.PI;
-	angle = Math.abs(angle);
+    if (mag1 === 0 || mag2 === 0) return 0;
 
-	// Return angle between 0-180 (we always want the smaller angle)
-	if (angle > 180) {
-		angle = 360 - angle;
-	}
-
-	return Math.round(angle * 10) / 10; // Round to 1 decimal place
+    // Clamp to [-1, 1] to avoid NaN from floating point drift
+    const cosAngle = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.round(Math.acos(cosAngle) * (180 / Math.PI) * 10) / 10;
 }
 
 /**
@@ -141,7 +144,7 @@ export function isAngleInRange(
  * @param angles - Array of calculated joint angles
  * @param angleThresholds - Map of angle names to {min, max} degree ranges for the pose
  * @returns True if all specified angles are within their ranges, false otherwise
- */
+
 export function classifyPoseByAngles(
 	angles: JointAngle[],
 	angleThresholds: Record<string, { min: number; max: number }>,
@@ -161,3 +164,4 @@ export function classifyPoseByAngles(
 
 	return true; // All angle conditions met
 }
+ */
