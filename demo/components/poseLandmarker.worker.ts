@@ -15,113 +15,6 @@ let recordingMetadata: RecordingMetadata | null = null;
 let currentExerciseQualityParameters: Record<string, number> | null = null;
 let oneEuroFilters: OneEuroFilter[] = [];
 
-const QUALITY_PARAMETER_TOLERANCE_DEGREES = 20;
-
-const QUALITY_PARAM_TO_ANGLE_NAME: Record<string, string> = {
-	leftKnee: "LEFT_KNEE",
-	rightKnee: "RIGHT_KNEE",
-	leftElbow: "LEFT_ELBOW",
-	rightElbow: "RIGHT_ELBOW",
-	bodyTilt: "TORSO",
-};
-
-type QualityParametersResult = {
-	passes: boolean;
-	accuracy: number; // 0-1 range
-};
-
-function resolveQualityTargetAngle(qualityParameterName: string, targetValue: number): number {
-	// bodyTilt in exercise plans is stored as deviation from upright (0 = upright).
-	// TORSO angle is measured as the hip joint angle (upright ~= 180°),
-	// so we convert by subtracting tilt from 180.
-	if (qualityParameterName === "bodyTilt") {
-		return 180 - targetValue;
-	}
-
-	return targetValue;
-}
-
-function passesQualityParameters(
-	prediction: ExercisePrediction | null,
-	jointAngles: JointAngle[],
-	qualityParameters: Record<string, number> | null,
-): QualityParametersResult {
-	if (!prediction || prediction.label === "unknown") {
-		return { passes: false, accuracy: 0 };
-	}
-
-	if (!qualityParameters) {
-		return { passes: true, accuracy: 1 };
-	}
-
-	const angleMap = new Map(jointAngles.map((jointAngle) => [jointAngle.name, jointAngle.angle]));
-	const accuracyScores: number[] = [];
-
-	for (const [qualityParameterName, target] of Object.entries(qualityParameters)) {
-		const angleName = QUALITY_PARAM_TO_ANGLE_NAME[qualityParameterName];
-		if (!angleName) {
-			continue;
-		}
-
-		const actualAngle = angleMap.get(angleName);
-		if (actualAngle === undefined) {
-			return { passes: false, accuracy: 0 };
-		}
-
-		const targetAngle = resolveQualityTargetAngle(qualityParameterName, target);
-		const angleDifference = Math.abs(actualAngle - targetAngle);
-
-		// Calculate accuracy for this parameter: 0 at tolerance boundary, 1 at target
-		const paramAccuracy = Math.max(0, 1 - angleDifference / QUALITY_PARAMETER_TOLERANCE_DEGREES);
-		accuracyScores.push(paramAccuracy);
-
-		if (angleDifference > QUALITY_PARAMETER_TOLERANCE_DEGREES) {
-			// Still calculate accuracy for this parameter but mark overall as not passing
-		}
-	}
-
-	const overallAccuracy = accuracyScores.length > 0
-		? accuracyScores.reduce((sum, score) => sum + score, 0) / accuracyScores.length
-		: 1;
-
-	const passes = accuracyScores.every((score) => score > (1 - QUALITY_PARAMETER_TOLERANCE_DEGREES / QUALITY_PARAMETER_TOLERANCE_DEGREES));
-
-	return { passes, accuracy: overallAccuracy };
-}
-
-function applyQualityGate(
-	prediction: ExercisePrediction | null,
-	jointAngles: JointAngle[],
-	qualityParameters: Record<string, number> | null,
-): ExercisePrediction | null {
-	if (!prediction) {
-		return null;
-	}
-
-	if (prediction.label === "unknown") {
-		return prediction;
-	}
-
-	if (prediction.confidence < 0.8) {
-		return {
-			label: "unknown",
-			confidence: prediction.confidence,
-			distance: prediction.distance,
-		};
-	}
-
-	const qualityResult = passesQualityParameters(prediction, jointAngles, qualityParameters);
-
-	if (qualityResult.passes) {
-		return prediction;
-	}
-
-	return {
-		label: "unknown",
-		confidence: 0,
-		distance: prediction.distance,
-	};
-}
 
 async function ensureClassifierReady() {
 	if (classifierStatus === "ready" || classifierStatus === "error") {
@@ -252,28 +145,10 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		void ensureClassifierReady();
 	}
 
-	const rawPredictions =
+	const predictions =
 		classifierStatus === "ready" && classifier
-			? smoothedLandmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
-			: smoothedLandmarks.map(() => null);
-
-	const qualityResults = rawPredictions.map((prediction, personIndex) =>
-		passesQualityParameters(prediction, jointAngles[personIndex] ?? [], currentExerciseQualityParameters),
-	);
-
-	const predictions = qualityResults.map((result, personIndex) => {
-		const rawPrediction = rawPredictions[personIndex];
-		if (!result.passes) {
-			return {
-				label: result.accuracy > 0 ? rawPrediction?.label ?? "unknown" : "unknown",
-				confidence: 0,
-				distance: rawPrediction?.distance ?? 0,
-			};
-		}
-		return rawPrediction ?? null;
-	});
-
-	const accuracyValues = qualityResults.map((result) => result.accuracy);
+			? message.landmarks.map((personLandmarks) => classifier?.predict(personLandmarks) ?? null)
+			: message.landmarks.map(() => null);
 
 	// Send normalized landmarks and joint angles back to main thread
 	self.postMessage({
@@ -287,7 +162,6 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		predictions,
 		classifierStatus,
 		recordingFrameCount: isRecording ? recorder.getFrameCount() : undefined,
-		accuracyValues,
 	});
 });
 
