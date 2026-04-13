@@ -203,6 +203,7 @@ export default function PoseLandmarkerView({
 			exerciseName: currentExercise.name,
 			mode: isDurationExercise ? "duration" : "repetitions",
 			target: targetValue,
+			qualityParameters: currentExercise.qualityParameters,
 		});
 
 		activeIntervalRef.current = setInterval(() => {
@@ -416,7 +417,6 @@ export default function PoseLandmarkerView({
 						const normalizedExerciseLabel = exercise
 							? normalizeExerciseLabel(exercise.name)
 							: undefined;
-						console.log("Phase:", phase, "New Label:", newLabel, "Remaining Value:", remainingValueRef.current, "Unit:", unit);
 						if (phase === "active" && normalizedNewLabel && normalizedNewLabel !== lastPredictionRef.current) {
 							lastPredictionRef.current = normalizedNewLabel;
 							if (
