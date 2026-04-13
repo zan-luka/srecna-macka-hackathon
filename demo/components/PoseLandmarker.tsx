@@ -52,6 +52,9 @@ export default function PoseLandmarkerView({
 	const frameIndexRef = useRef(0);
 	const captureInterval = Math.max(1, Math.floor(captureEveryNthFrame));
 	const exerciseCompletedRef = useRef(false);
+	const lastRepCountTimeRef = useRef(0);
+	const latestWorkerMessageRef = useRef<NormalizedLandmarksMessage | null>(null);
+	const lastSyncMessageRef = useRef<NormalizedLandmarksMessage | null>(null);
 
 	// Gamification
 	const gamification = useGameification();
@@ -93,6 +96,19 @@ export default function PoseLandmarkerView({
 
 	const currentExercise = EXERCISE_PLAN[exerciseIndex] ?? null;
 	const hasExercises = EXERCISE_PLAN.length > 0;
+
+	// Sync worker message from ref to state periodically to avoid infinite loop
+	useEffect(() => {
+		const syncInterval = setInterval(() => {
+			if (latestWorkerMessageRef.current && latestWorkerMessageRef.current !== lastSyncMessageRef.current) {
+				setLatestWorkerMessage(latestWorkerMessageRef.current);
+				setNormalizedStats(getNormalizedStats(latestWorkerMessageRef.current));
+				lastSyncMessageRef.current = latestWorkerMessageRef.current;
+			}
+		}, 50); // Sync every 50ms
+
+		return () => clearInterval(syncInterval);
+	}, []);
 
 	const clearWorkoutIntervals = () => {
 		if (countdownIntervalRef.current) {
@@ -441,8 +457,8 @@ export default function PoseLandmarkerView({
 								});
 							}
 						}
-						setLatestWorkerMessage(nlm);
-						setNormalizedStats(getNormalizedStats(nlm));
+						// Store in ref to avoid infinite loop, will sync to state via effect
+						latestWorkerMessageRef.current = nlm;
 					} else if (message.type === "recording_data") {
 						// Handle recording export
 						const { metadata, stats, buffer } = message;
@@ -598,7 +614,13 @@ export default function PoseLandmarkerView({
 				const confirmedPredictions = predictions.filter(
 					(p) => p && p.confidence > 0.6
 				);
-				gamification.updateSessionReps(confirmedPredictions.length);
+				
+				// Apply 1-second debounce before counting reps
+				const now = Date.now();
+				if (confirmedPredictions.length > 0 && now - lastRepCountTimeRef.current >= 1000) {
+					gamification.updateSessionReps(confirmedPredictions.length);
+					lastRepCountTimeRef.current = now;
+				}
 			}
 		}
 	}, [latestWorkerMessage, exercisePhase, gamification]);
@@ -655,16 +677,15 @@ export default function PoseLandmarkerView({
 				<FormFeedbackOverlay
 					accuracy={gamification.sessionAccuracy}
 					pointsEarned={gamification.sessionPoints}
-					currentStreak={gamification.gameStats.currentStreak}
-					formQuality={gamification.sessionAccuracy > 0.7 ? "Good" : "Keep Trying"}
-					showPoints={gamification.sessionPoints > 0}
-					showAccuracy={exercisePhase === "active"}
-				/>
-
-				<AchievementUnlock
-					achievement={gamification.unlockedAchievement}
-					onDismiss={() => gamification.setUnlockedAchievement(null)}
-				/>
+				totalSessionPoints={gamification.sessionPoints}
+				currentStreak={gamification.gameStats.currentStreak}
+				formQuality={gamification.sessionAccuracy > 0.7 ? "Good" : "Keep Trying"}
+				showPoints={gamification.sessionPoints > 0}
+				showAccuracy={exercisePhase === "active"}
+			/>
+			<AchievementUnlock
+				achievement={gamification.unlockedAchievement}
+				onDismiss={() => gamification.setUnlockedAchievement(null)}				/>
 
 				{error ? (
 					<p className="absolute bottom-3 left-1/2 z-20 w-[min(92%,40rem)] -translate-x-1/2 rounded-xl border border-orange-400 bg-orange-100 px-3 py-2 text-center text-sm font-medium text-orange-700 shadow-lg backdrop-blur">
