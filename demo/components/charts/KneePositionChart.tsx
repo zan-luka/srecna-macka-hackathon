@@ -39,6 +39,14 @@ function getKneeAngles(frame: RecordedFrame) {
 	};
 }
 
+function getFrameTimestampByIndex(frames: RecordedFrame[], frameIndex: number) {
+	return frames.find((frame) => frame.frameIndex === frameIndex)?.timestamp ?? null;
+}
+
+function getFramePositionByIndex(frames: RecordedFrame[], frameIndex: number) {
+	return frames.findIndex((frame) => frame.frameIndex === frameIndex);
+}
+
 export function KneePositionChart({ frames, exerciseGroups = [] }: KneePositionChartProps) {
 	const chartData = useMemo<ChartData<"line", Array<number | null>, string>>(() => {
 		if (frames.length === 0) {
@@ -81,31 +89,31 @@ export function KneePositionChart({ frames, exerciseGroups = [] }: KneePositionC
 				const ctx = chart.ctx;
 				const xScale = chart.scales.x;
 				const yScale = chart.scales.y;
-				const firstTimestamp = frames[0]?.timestamp ?? 0;
 
 				exerciseGroups.forEach((exercise, idx) => {
-					// Draw start line (green)
-					const startTimeRelative = exercise.startTime - firstTimestamp;
-					const startLabel = `${(startTimeRelative / 1000).toFixed(1)}s`;
-					const startX = xScale.getPixelForValue(startLabel);
+					const startPosition = getFramePositionByIndex(frames, exercise.startFrameIndex);
+					if (startPosition !== -1) {
+						const startX = xScale.getPixelForValue(startPosition);
 
-					if (startX !== undefined && !Number.isNaN(startX)) {
-						ctx.save();
-						ctx.strokeStyle = "rgba(34, 197, 94, 0.5)";
-						ctx.lineWidth = 2;
-						ctx.setLineDash([5, 5]);
-						ctx.beginPath();
-						ctx.moveTo(startX, yScale.top);
-						ctx.lineTo(startX, yScale.bottom);
-						ctx.stroke();
-						ctx.restore();
+						if (startX !== undefined && !Number.isNaN(startX)) {
+							ctx.save();
+							ctx.strokeStyle = "rgba(34, 197, 94, 0.5)";
+							ctx.lineWidth = 2;
+							ctx.setLineDash([5, 5]);
+							ctx.beginPath();
+							ctx.moveTo(startX, yScale.top);
+							ctx.lineTo(startX, yScale.bottom);
+							ctx.stroke();
+							ctx.restore();
+						}
 					}
 
-					// Draw end line (red)
-					if (exercise.endTime) {
-						const endTimeRelative = exercise.endTime - firstTimestamp;
-						const endLabel = `${(endTimeRelative / 1000).toFixed(1)}s`;
-						const endX = xScale.getPixelForValue(endLabel);
+					const nextExercise = exerciseGroups[idx + 1];
+					const endFrameIndex = nextExercise?.startFrameIndex;
+					const endPosition = endFrameIndex !== undefined ? getFramePositionByIndex(frames, endFrameIndex) : -1;
+
+					if (endPosition !== -1) {
+						const endX = xScale.getPixelForValue(endPosition);
 
 						if (endX !== undefined && !Number.isNaN(endX)) {
 							ctx.save();
