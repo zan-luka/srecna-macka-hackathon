@@ -57,7 +57,7 @@ export function RecordingPanel({
 					return;
 				}
 				data = recordingData.buffer;
-				filename = `pose_${metadata.exerciseName}_${timestamp}.pose`;
+				filename = `pose_session_${timestamp}.pose`;
 				mimeType = "application/octet-stream";
 				break;
 			}
@@ -70,27 +70,36 @@ export function RecordingPanel({
 					null,
 					2,
 				);
-				filename = `pose_${metadata.exerciseName}_${timestamp}.json`;
+				filename = `pose_session_${timestamp}.json`;
 				mimeType = "application/json";
 				break;
 			}
 			case "csv": {
-				// Create CSV from metadata
+				// Create CSV with exercise groups summary
 				const lines: string[] = [
-					"# Pose Recording Export",
-					`# Exercise: ${metadata.exerciseName}`,
-					`# Duration: ${metadata.duration}ms`,
-					`# Frames: ${metadata.frameCount}`,
+					"# Full-Session Pose Recording Export",
+					`# Session Duration: ${metadata.sessionDuration}ms`,
+					`# Total Frames: ${metadata.frameCount}`,
+					`# Exercises: ${metadata.exerciseGroups.length}`,
 					`# Recorded At: ${new Date(metadata.startTime).toISOString()}`,
 					"",
-					"Frame Statistics:",
-					`Total Frames,${metadata.frameCount}`,
-					`Duration (ms),${metadata.duration}`,
-					`Average FPS,${stats?.avgFPS.toFixed(1) ?? "N/A"}`,
-					`Recorded People,${stats?.recordedPeople ?? "N/A"}`,
+					"Exercise Groups:",
 				];
+				
+				for (const ex of metadata.exerciseGroups) {
+					lines.push(
+						`${ex.name},Frames: ${ex.frameCount},Start Frame: ${ex.startFrameIndex},Duration: ${ex.duration ?? 0}ms`
+					);
+				}
+				
+				lines.push("", "Session Statistics:");
+				lines.push(`Total Frames,${metadata.frameCount}`);
+				lines.push(`Session Duration (ms),${metadata.sessionDuration}`);
+				lines.push(`Average FPS,${stats?.avgFPS.toFixed(1) ?? "N/A"}`);
+				lines.push(`Recorded People,${stats?.recordedPeople ?? "N/A"}`);
+				
 				data = lines.join("\n");
-				filename = `pose_${metadata.exerciseName}_${timestamp}.csv`;
+				filename = `pose_session_${timestamp}.csv`;
 				mimeType = "text/csv";
 				break;
 			}
@@ -110,17 +119,15 @@ export function RecordingPanel({
 					{isRecording ? (
 						<span className="flex items-center gap-2">
 							<span className="inline-block h-3 w-3 animate-pulse rounded-full bg-red-500"></span>
-							Recording
+							Recording Session
 						</span>
 					) : (
-						<span className="text-cyan-700">Recording Complete</span>
+						<span className="text-cyan-700">Session Complete</span>
 					)}
 				</div>
 			</div>
 
 			<div className="mt-2 space-y-1 text-xs">
-				{exerciseName && <div className="text-cyan-700">Exercise: {exerciseName}</div>}
-
 				<div>
 					<span className="text-cyan-700">Frames: </span>
 					<span className="font-mono font-semibold">{frameCount}</span>
@@ -130,6 +137,20 @@ export function RecordingPanel({
 					<div>
 						<span className="text-cyan-700">Duration: </span>
 						<span className="font-mono font-semibold">{(duration / 1000).toFixed(1)}s</span>
+					</div>
+				)}
+
+				{recordingData?.metadata?.exerciseGroups && recordingData.metadata.exerciseGroups.length > 0 && (
+					<div className="border-t border-cyan-200/50 pt-1 mt-1">
+						<div className="text-cyan-700 font-semibold text-xs">Exercises:</div>
+						<div className="text-xs space-y-1 mt-1">
+							{recordingData.metadata.exerciseGroups.map((ex, idx) => (
+								<div key={idx} className="flex justify-between text-cyan-900">
+									<span>{ex.name}</span>
+									<span className="font-mono text-cyan-700">{ex.frameCount} frames</span>
+								</div>
+							))}
+						</div>
 					</div>
 				)}
 
@@ -160,21 +181,21 @@ export function RecordingPanel({
 						<div className="mt-2 space-y-1">
 							<button
 								onClick={() => handleExport("binary")}
-								title="Binary format (.pose) - Most compact, can be re-imported"
+								title="Binary format (.pose) - Most compact, can be re-imported, includes exercise grouping"
 								className="w-full rounded-md border border-cyan-400 bg-cyan-100 px-2 py-1 text-xs font-medium text-cyan-900 hover:bg-cyan-200 transition-colors"
 							>
 								Binary (.pose)
 							</button>
 							<button
 								onClick={() => handleExport("json")}
-								title="JSON format - Human readable, for debugging"
+								title="JSON format - Human readable, for debugging and analysis"
 								className="w-full rounded-md border border-cyan-400 bg-cyan-100 px-2 py-1 text-xs font-medium text-cyan-900 hover:bg-cyan-200 transition-colors"
 							>
 								JSON (.json)
 							</button>
 							<button
 								onClick={() => handleExport("csv")}
-								title="CSV format - For spreadsheet analysis"
+								title="CSV format - For spreadsheet analysis with exercise breakdown"
 								className="w-full rounded-md border border-cyan-400 bg-cyan-100 px-2 py-1 text-xs font-medium text-cyan-900 hover:bg-cyan-200 transition-colors"
 							>
 								CSV (.csv)

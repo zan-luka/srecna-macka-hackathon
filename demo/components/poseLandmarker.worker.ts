@@ -93,9 +93,9 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 
 	if (message.type === "recording_start") {
 		recorder = new PoseRecorder();
-		recorder.startRecording(message.exerciseName || "Unknown Exercise");
+		recorder.startRecording();
 		isRecording = true;
-		console.log(`📹 Recording started for: ${message.exerciseName}`);
+		console.log(`📹 Full-session recording started`);
 		return;
 	}
 
@@ -103,7 +103,7 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		recordingMetadata = recorder.stopRecording();
 		isRecording = false;
 		const stats = recorder.getStats();
-		console.log(`📊 Recording stats:`, stats);
+		console.log(`📊 Full-session recording stats:`, stats);
 		// Send recording data back to main thread
 		const binaryData = recorder.exportAsBinary(recordingMetadata);
 		self.postMessage({
@@ -117,6 +117,10 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 
 	if (message.type === "exercise_started") {
 		currentExerciseQualityParameters = message.qualityParameters ?? null;
+		// Mark exercise in recorder if recording
+		if (isRecording) {
+			recorder.markExerciseStart(message.exerciseName, message.frameIndex);
+		}
 		// Reset filters for new exercise
 		oneEuroFilters = [];
 		console.log(

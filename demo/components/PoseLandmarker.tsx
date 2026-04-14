@@ -82,8 +82,8 @@ export default function PoseLandmarkerView({
 		metadata?: RecordingMetadata;
 		buffer?: ArrayBuffer;
 	} | null>(null);
-	// Derive isRecording from exercise state to avoid cascading renders
-	const isRecording = exercisePhase === "active" && sessionState === "running";
+	// Derive isRecording from session state
+	const isRecording = sessionState === "running";
 	const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const overlayLatencyEwmaRef = useRef<number | null>(null);
@@ -558,7 +558,7 @@ export default function PoseLandmarkerView({
 		currentExercise,
 	]);
 
-	// Handle recording based on exercise state
+	// Handle recording based on session state
 	useEffect(() => {
 		if (!workerRef.current) {
 			return;
@@ -566,9 +566,9 @@ export default function PoseLandmarkerView({
 
 		// Determine desired recording state
 		let desiredState: "should_record" | "should_stop" | "idle" = "idle";
-		if (exercisePhase === "active" && sessionState === "running") {
+		if (sessionState === "running") {
 			desiredState = "should_record";
-		} else if (exercisePhase === "finished" || sessionState !== "running") {
+		} else {
 			desiredState = "should_stop";
 		}
 
@@ -578,7 +578,6 @@ export default function PoseLandmarkerView({
 				sessionStartTimeRef.current = Date.now();
 				workerRef.current.postMessage({
 					type: "recording_start",
-					exerciseName: currentExercise?.name || "Unknown",
 				});
 			} else if (desiredState === "should_stop") {
 				workerRef.current.postMessage({
@@ -587,7 +586,7 @@ export default function PoseLandmarkerView({
 			}
 			recordingStateRef.current = desiredState;
 		}
-	}, [exercisePhase, sessionState, currentExercise]);
+	}, [sessionState]);
 
 	// Track gamification data when exercise finishes
 	useEffect(() => {

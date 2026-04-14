@@ -3,14 +3,22 @@ import type { Landmark } from "./types";
 /**
  * Binary format for recorded pose data.
  * Optimized for space efficiency (each landmark = 20 bytes).
+ * Supports full-session recording with exercise grouping.
  *
- * Format: [header][frames]
- * Header (28 bytes):
+ * Format: [header][exercise entries][frames]
+ * Header (36 bytes):
  *   - magic: 4 bytes "POSE" (0x504F5345)
- *   - version: 4 bytes (1)
+ *   - version: 4 bytes (2)
  *   - frameCount: 4 bytes uint32
  *   - startTime: 8 bytes float64 (milliseconds)
- *   - exerciseName: 8 bytes (max 8 chars, padded)
+ *   - exerciseCount: 4 bytes uint32
+ *   - sessionDuration: 8 bytes float64
+ *
+ * Each Exercise Entry (variable):
+ *   - nameLength: 2 bytes uint16
+ *   - name: variable bytes
+ *   - startFrameIndex: 4 bytes uint32
+ *   - frameCount: 4 bytes uint32
  *
  * Each Frame (variable):
  *   - frameIndex: 4 bytes uint32
@@ -31,6 +39,16 @@ export type RecordedFrame = {
 	frameIndex: number;
 	timestamp: number;
 	landmarks: Array<Array<Landmark>>;
+	exerciseIndex?: number; // Index of the exercise this frame belongs to
+};
+
+export type ExerciseGroup = {
+	name: string;
+	startFrameIndex: number;
+	frameCount: number;
+	startTime: number;
+	endTime?: number;
+	duration?: number;
 };
 
 export type RecordingMetadata = {
@@ -39,35 +57,77 @@ export type RecordingMetadata = {
 	frameCount: number;
 	startTime: number;
 	endTime?: number;
-	exerciseName: string;
-	duration?: number; // milliseconds
+	sessionDuration?: number; // milliseconds
+	exerciseGroups: ExerciseGroup[];
 };
 
 const MAGIC_NUMBER = 0x504f5345; // "POSE"
-const VERSION = 1;
+const VERSION = 2;
 const LANDMARKS_PER_PERSON = 33;
 const BYTES_PER_LANDMARK = 20; // 4 + 4 + 4 + 4 + 1 + 3 padding
 
 /**
- * Records pose frames captured during an exercise session.
- * Stores frames in memory and can export as binary ArrayBuffer.
+ * Records pose frames captured during an entire workout session.
+ * Stores frames in memory and groups them by exercise for export.
  */
 export class PoseRecorder {
 	private frames: RecordedFrame[] = [];
 	private isRecording: boolean = false;
 	private startTime: number = 0;
-	private exerciseName: string = "";
+	private exerciseGroups: ExerciseGroup[] = [];
+	private currentExerciseIndex: number = -1;
+	private currentExerciseStartFrame: number = 0;
+	private currentExerciseStartTime: number = 0;
 
 	/**
-	 * Start recording pose frames for an exercise.
-	 * @param exerciseName - Name of the exercise being performed
+	 * Start recording pose frames for the entire workout session.
 	 */
-	startRecording(exerciseName: string) {
+	startRecording() {
 		this.frames = [];
+		this.exerciseGroups = [];
 		this.isRecording = true;
 		this.startTime = Date.now();
-		this.exerciseName = exerciseName;
-		console.log(`📹 Started recording: ${exerciseName}`);
+		this.currentExerciseIndex = -1;
+		console.log(`📹 Started full-session recording`);
+	}
+
+	/**
+	 * Mark the start of a new exercise within the session.
+	 * @param exerciseName - Name of the exercise being started
+	 * @param frameIndex - Current frame index
+	 */
+	markExerciseStart(exerciseName: string, frameIndex: number) {
+		if (!this.isRecording) {
+			return;
+		}
+
+		// Close previous exercise if exists
+		if (this.currentExerciseIndex >= 0) {
+			const lastFrame = this.frames[this.frames.length - 1];
+			if (lastFrame) {
+				this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
+				this.exerciseGroups[this.currentExerciseIndex].duration =
+					lastFrame.timestamp - this.currentExerciseStartTime;
+				this.exerciseGroups[this.currentExerciseIndex].frameCount =
+					frameIndex - this.currentExerciseStartFrame;
+			}
+		}
+
+		// Start new exercise
+		this.currentExerciseIndex = this.exerciseGroups.length;
+		this.currentExerciseStartFrame = frameIndex;
+		this.currentExerciseStartTime = Date.now();
+
+		this.exerciseGroups.push({
+			name: exerciseName,
+			startFrameIndex: frameIndex,
+			frameCount: 0,
+			startTime: this.currentExerciseStartTime,
+		});
+
+		console.log(
+			`📌 Exercise started: ${exerciseName} (frame ${frameIndex})`,
+		);
 	}
 
 	/**
@@ -77,8 +137,20 @@ export class PoseRecorder {
 	stopRecording(): RecordingMetadata {
 		this.isRecording = false;
 		const endTime = Date.now();
+
+		// Finalize current exercise if exists
+		if (this.currentExerciseIndex >= 0) {
+			const lastFrame = this.frames[this.frames.length - 1];
+			if (lastFrame) {
+				this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
+				this.exerciseGroups[this.currentExerciseIndex].duration =
+					lastFrame.timestamp - this.currentExerciseStartTime;
+			}
+		}
+
+		const sessionDuration = endTime - this.startTime;
 		console.log(
-			`⏹️  Stopped recording: ${this.frames.length} frames captured in ${endTime - this.startTime}ms`,
+			`⏹️  Stopped full-session recording: ${this.frames.length} frames, ${this.exerciseGroups.length} exercises in ${sessionDuration}ms`,
 		);
 
 		return {
@@ -87,8 +159,8 @@ export class PoseRecorder {
 			frameCount: this.frames.length,
 			startTime: this.startTime,
 			endTime: endTime,
-			exerciseName: this.exerciseName,
-			duration: endTime - this.startTime,
+			sessionDuration: sessionDuration,
+			exerciseGroups: this.exerciseGroups,
 		};
 	}
 
@@ -104,6 +176,7 @@ export class PoseRecorder {
 			frameIndex,
 			timestamp,
 			landmarks,
+			exerciseIndex: this.currentExerciseIndex,
 		});
 	}
 
@@ -124,10 +197,23 @@ export class PoseRecorder {
 
 	/**
 	 * Export recorded frames as binary ArrayBuffer.
-	 * Format optimized for space efficiency.
+	 * Format optimized for space efficiency with exercise grouping.
 	 */
 	exportAsBinary(metadata: RecordingMetadata): ArrayBuffer {
-		const estimatedSize = 28 + this.frames.length * (16 + LANDMARKS_PER_PERSON * BYTES_PER_LANDMARK);
+		// Estimate size: header + exercise entries + frames
+		let estimatedSize = 36; // header
+
+		// Exercise entries
+		for (const ex of metadata.exerciseGroups) {
+			estimatedSize += 2; // nameLength
+			estimatedSize += new TextEncoder().encode(ex.name).length;
+			estimatedSize += 8; // startFrameIndex + frameCount
+		}
+
+		// Frames
+		estimatedSize +=
+			this.frames.length * (16 + LANDMARKS_PER_PERSON * BYTES_PER_LANDMARK);
+
 		const buffer = new ArrayBuffer(estimatedSize);
 		const view = new DataView(buffer);
 		let offset = 0;
@@ -141,13 +227,25 @@ export class PoseRecorder {
 		offset += 4;
 		view.setFloat64(offset, metadata.startTime, true);
 		offset += 8;
-
-		// Write exercise name (8 bytes, padded)
-		const nameBytes = new TextEncoder().encode(metadata.exerciseName.substring(0, 8));
-		for (let i = 0; i < 8; i++) {
-			view.setUint8(offset + i, nameBytes[i] ?? 0);
-		}
+		view.setUint32(offset, metadata.exerciseGroups.length, true);
+		offset += 4;
+		view.setFloat64(offset, metadata.sessionDuration ?? 0, true);
 		offset += 8;
+
+		// Write exercise entries
+		for (const ex of metadata.exerciseGroups) {
+			const nameBytes = new TextEncoder().encode(ex.name);
+			view.setUint16(offset, nameBytes.length, true);
+			offset += 2;
+			for (let i = 0; i < nameBytes.length; i++) {
+				view.setUint8(offset + i, nameBytes[i]);
+			}
+			offset += nameBytes.length;
+			view.setUint32(offset, ex.startFrameIndex, true);
+			offset += 4;
+			view.setUint32(offset, ex.frameCount, true);
+			offset += 4;
+		}
 
 		// Write frames
 		for (const frame of this.frames) {
@@ -197,24 +295,42 @@ export class PoseRecorder {
 
 	/**
 	 * Export as CSV for analysis in spreadsheets.
-	 * Each row: frameIndex, timestamp, personIndex, landmarkIndex, x, y, z, visibility
+	 * Each row: frameIndex, timestamp, exerciseName, personIndex, landmarkIndex, x, y, z, visibility
 	 */
 	exportAsCSV(metadata: RecordingMetadata): string {
 		const lines: string[] = [
-			"# Pose Recording Export",
-			`# Exercise: ${metadata.exerciseName}`,
-			`# Duration: ${metadata.duration}ms`,
+			"# Full Session Pose Recording Export",
+			`# Total Duration: ${metadata.sessionDuration}ms`,
 			`# Frames: ${metadata.frameCount}`,
+			`# Exercises: ${metadata.exerciseGroups.length}`,
 			`# Start: ${new Date(metadata.startTime).toISOString()}`,
-			"frameIndex,timestamp,personIndex,landmarkIndex,x,y,z,visibility",
+			"frameIndex,timestamp,exerciseName,personIndex,landmarkIndex,x,y,z,visibility",
 		];
 
+		// Build exercise name map from frame exerciseIndex
+		const exerciseMap = new Map<number, string>();
+		for (const ex of metadata.exerciseGroups) {
+			const frames = this.frames.filter(
+				(f) =>
+					f.frameIndex >= ex.startFrameIndex &&
+					f.frameIndex < ex.startFrameIndex + ex.frameCount
+			);
+			for (const frame of frames) {
+				exerciseMap.set(frame.frameIndex, ex.name);
+			}
+		}
+
 		for (const frame of this.frames) {
+			const exerciseName = exerciseMap.get(frame.frameIndex) || "unknown";
 			for (let personIdx = 0; personIdx < frame.landmarks.length; personIdx++) {
-				for (let lmIdx = 0; lmIdx < frame.landmarks[personIdx].length; lmIdx++) {
+				for (
+					let lmIdx = 0;
+					lmIdx < frame.landmarks[personIdx].length;
+					lmIdx++
+				) {
 					const lm = frame.landmarks[personIdx][lmIdx];
 					lines.push(
-						`${frame.frameIndex},${frame.timestamp},${personIdx},${lmIdx},${lm.x},${lm.y},${lm.z},${lm.visibility ?? 0}`,
+						`${frame.frameIndex},${frame.timestamp},${exerciseName},${personIdx},${lmIdx},${lm.x},${lm.y},${lm.z},${lm.visibility ?? 0}`,
 					);
 				}
 			}
@@ -271,18 +387,39 @@ export class PoseRecorder {
 		offset += 4;
 		const startTime = view.getFloat64(offset, true);
 		offset += 8;
-
-		// Read exercise name
-		const nameBytes = new Uint8Array(buffer, offset, 8);
-		const exerciseName = new TextDecoder().decode(nameBytes).replace(/\0/g, "");
+		const exerciseCount = view.getUint32(offset, true);
+		offset += 4;
+		const sessionDuration = view.getFloat64(offset, true);
 		offset += 8;
+
+		// Read exercise entries
+		const exerciseGroups: ExerciseGroup[] = [];
+		for (let i = 0; i < exerciseCount; i++) {
+			const nameLength = view.getUint16(offset, true);
+			offset += 2;
+			const nameBytes = new Uint8Array(buffer, offset, nameLength);
+			const name = new TextDecoder().decode(nameBytes);
+			offset += nameLength;
+			const startFrameIndex = view.getUint32(offset, true);
+			offset += 4;
+			const frameCountEx = view.getUint32(offset, true);
+			offset += 4;
+
+			exerciseGroups.push({
+				name,
+				startFrameIndex,
+				frameCount: frameCountEx,
+				startTime: 0,
+			});
+		}
 
 		const metadata: RecordingMetadata = {
 			magic: "POSE",
 			version,
 			frameCount,
 			startTime,
-			exerciseName,
+			sessionDuration,
+			exerciseGroups,
 		};
 
 		// Read frames
@@ -316,10 +453,24 @@ export class PoseRecorder {
 				landmarks.push(personLandmarks);
 			}
 
+			// Find exercise index for this frame
+			let exerciseIndex = -1;
+			for (let ex = 0; ex < exerciseGroups.length; ex++) {
+				const exGroup = exerciseGroups[ex];
+				if (
+					frameIndex >= exGroup.startFrameIndex &&
+					frameIndex < exGroup.startFrameIndex + exGroup.frameCount
+				) {
+					exerciseIndex = ex;
+					break;
+				}
+			}
+
 			frames.push({
 				frameIndex,
 				timestamp,
 				landmarks,
+				exerciseIndex,
 			});
 		}
 
