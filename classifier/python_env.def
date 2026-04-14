@@ -1,0 +1,18 @@
+Bootstrap: docker
+From: python:3.12-slim  # Or your preferred base
+
+%post
+    # Install system-level dependencies if needed
+    #apt-get update
+    
+    apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
+
+    # Install your python modules
+    pip install pillow matplotlib numpy opencv-python tqdm requests
+
+    pip install mediapipe==0.10.13
+
+
+%runscript
+    # This is what happens when you 'apptainer run' the image
+    python "$@"
