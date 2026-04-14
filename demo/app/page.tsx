@@ -71,40 +71,62 @@ export default function Home() {
         onExit={handleExit}
       />
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 p-3 sm:p-4">
-        {/* Always-visible control bar */}
-        <div className="pointer-events-auto mx-auto flex justify-center items-center gap-3 rounded-xl border border-gray-200/80 bg-white/90 px-4 py-3 shadow-lg backdrop-blur w-fit">
-          {/* Status badge */}
-          <span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${stateClassName}`}>
-            {stateLabel}
-          </span>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 p-2 sm:p-4">
+        {/* Responsive navbar */}
+        <div className="pointer-events-auto mx-auto w-full max-w-6xl rounded-xl border border-white/20 bg-white/90 shadow-xl backdrop-blur sm:rounded-2xl">
+          <div className="flex flex-col gap-2 p-2.5 sm:gap-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center justify-between gap-2 sm:gap-3">
+              <div className="min-w-0">
+                <p className="hidden text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500 sm:block">
+                  Pose trainer
+                </p>
+                <h1 className="truncate text-sm font-semibold text-zinc-900 sm:text-lg">
+                  Workout capture
+                </h1>
+              </div>
 
-          {/* Primary action buttons */}
-          <div className="flex gap-2">
-            {renderControls()}
+              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold sm:px-3 sm:py-1.5 sm:text-xs ${stateClassName}`}>
+                {stateLabel}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+              <div className="flex items-center gap-2 sm:flex-wrap">
+                <div className="flex flex-wrap gap-2">
+                  {renderControls()}
+                </div>
+
+                <Link
+                  href="/analytics"
+                  className="ml-auto inline-flex min-h-9 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-100 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-900 transition hover:bg-emerald-200 sm:min-h-10 sm:px-3 sm:py-2 sm:text-xs"
+                >
+                  Analytics
+                </Link>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowControls((previous) => !previous)}
+                aria-expanded={showControls}
+                aria-controls="workout-plan-dropdown"
+                className="inline-flex min-h-9 items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-100 px-3 py-1.5 text-[11px] font-semibold text-blue-900 transition hover:bg-blue-200 sm:min-h-10 sm:px-3 sm:py-2 sm:text-xs"
+              >
+                <span>{showControls ? "Hide plan" : "Workout plan"}</span>
+                <span aria-hidden="true" className="text-[10px] leading-none sm:text-xs">
+                  {showControls ? "▴" : "▾"}
+                </span>
+              </button>
+            </div>
           </div>
-
-          {/* Toggle exercise plan */}
-          <button
-            type="button"
-            onClick={() => setShowControls((previous) => !previous)}
-            className="ml-2 rounded-lg border border-blue-200 bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-900 transition hover:bg-blue-200"
-          >
-            {showControls ? "▼ Plan" : "▶ Plan"}
-          </button>
-
-          <Link
-            href="/analytics"
-            className="ml-2 rounded-lg border border-emerald-200 bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-200"
-          >
-            Analytics
-          </Link>
         </div>
 
         {/* Expandable exercise plan */}
         {showControls && (
-          <div className="pointer-events-auto mt-2 rounded-xl border border-gray-200/80 bg-white/88 p-3 shadow-xl backdrop-blur sm:p-4 mx-auto w-fit max-w-2xl">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-gray-700 mb-2">Workout Plan</h3>
+          <div
+            id="workout-plan-dropdown"
+            className="pointer-events-auto mx-auto mt-2 w-full max-w-6xl rounded-2xl border border-white/20 bg-white/90 p-2.5 shadow-xl backdrop-blur sm:p-4"
+          >
+            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-widest text-gray-700 sm:text-xs">Workout Plan</h3>
             <ul className="grid max-h-40 grid-cols-1 gap-2 overflow-auto pr-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
               {EXERCISE_PLAN.map((exercise) => (
                 <li

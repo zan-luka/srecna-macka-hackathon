@@ -687,6 +687,7 @@ export default function PoseLandmarkerView({
 				achievement={gamification.unlockedAchievement}
 				onDismiss={() => gamification.setUnlockedAchievement(null)}				/>
 
+				{/*
 				{error ? (
 					<p className="absolute bottom-3 left-1/2 z-20 w-[min(92%,40rem)] -translate-x-1/2 rounded-xl border border-orange-400 bg-orange-100 px-3 py-2 text-center text-sm font-medium text-orange-700 shadow-lg backdrop-blur">
 						{error}
@@ -698,6 +699,7 @@ export default function PoseLandmarkerView({
 							: "Initializing webcam and model..."}
 					</p>
 				)}
+				*/}
 			</div>
 
 			{showNormalizationStats ? (
