@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import PoseLandmarkerView from "@/components/PoseLandmarker";
 import { EXERCISE_PLAN } from "@/components/pose-landmarker/exercisePlan";
@@ -91,6 +92,13 @@ export default function Home() {
           >
             {showControls ? "▼ Plan" : "▶ Plan"}
           </button>
+
+          <Link
+            href="/analytics"
+            className="ml-2 rounded-lg border border-emerald-200 bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-200"
+          >
+            Analytics
+          </Link>
         </div>
 
         {/* Expandable exercise plan */}

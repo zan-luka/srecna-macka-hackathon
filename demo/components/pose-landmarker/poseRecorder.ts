@@ -65,6 +65,19 @@ const MAGIC_NUMBER = 0x504f5345; // "POSE"
 const VERSION = 2;
 const LANDMARKS_PER_PERSON = 33;
 const BYTES_PER_LANDMARK = 20; // 4 + 4 + 4 + 4 + 1 + 3 padding
+const DB_NAME = "pose_recordings_db";
+const DB_VERSION = 1;
+const RECORDINGS_STORE = "recordings";
+
+type StoredRecordingEntry = {
+	startTime: number;
+	timestamp: string;
+	frameCount: number;
+	sessionDuration?: number;
+	exerciseCount: number;
+	exercises: Array<{ name: string; duration?: number; frameCount: number }>;
+	buffer: ArrayBuffer;
+};
 
 /**
  * Records pose frames captured during an entire workout session.
@@ -131,6 +144,7 @@ export class PoseRecorder {
 
 	/**
 	 * Stop recording and prepare data for export.
+	 * Automatically saves the binary recording data to IndexedDB.
 	 * @returns Recording metadata
 	 */
 	stopRecording(): RecordingMetadata {
@@ -152,11 +166,7 @@ export class PoseRecorder {
 			sessionDuration = lastFrame.timestamp - firstFrame.timestamp;
 		}
 
-		console.log(
-			`⏹️  Stopped full-session recording: ${this.frames.length} frames, ${this.exerciseGroups.length} exercises in ${sessionDuration.toFixed(0)}ms`,
-		);
-
-		return {
+		const metadata: RecordingMetadata = {
 			magic: "POSE",
 			version: VERSION,
 			frameCount: this.frames.length,
@@ -165,6 +175,18 @@ export class PoseRecorder {
 			sessionDuration: sessionDuration,
 			exerciseGroups: this.exerciseGroups,
 		};
+
+		console.log(
+			`⏹️  Stopped full-session recording: ${this.frames.length} frames, ${this.exerciseGroups.length} exercises in ${sessionDuration.toFixed(0)}ms`,
+		);
+
+		// Automatically save binary data to IndexedDB
+		const binaryBuffer = this.exportAsBinary(metadata);
+		void this.saveToIndexedDB(binaryBuffer, metadata).catch((error) => {
+			console.error("❌ Failed to save recording to IndexedDB:", error);
+		});
+
+		return metadata;
 	}
 
 	/**
@@ -196,6 +218,189 @@ export class PoseRecorder {
 	clear() {
 		this.frames = [];
 		this.isRecording = false;
+	}
+
+	/**
+	 * Open IndexedDB and create schema if needed.
+	 */
+	private static openDatabase(): Promise<IDBDatabase> {
+		if (typeof indexedDB === "undefined") {
+			return Promise.reject(new Error("IndexedDB is not available in this environment."));
+		}
+
+		return new Promise((resolve, reject) => {
+			const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+			request.onupgradeneeded = () => {
+				const db = request.result;
+				if (!db.objectStoreNames.contains(RECORDINGS_STORE)) {
+					db.createObjectStore(RECORDINGS_STORE, { keyPath: "startTime" });
+				}
+			};
+
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB."));
+		});
+	}
+
+	/**
+	 * Save the binary recording data to IndexedDB.
+	 * Keeps only the latest 20 recordings.
+	 */
+	private async saveToIndexedDB(buffer: ArrayBuffer, metadata: RecordingMetadata): Promise<void> {
+		const db = await PoseRecorder.openDatabase();
+
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const transaction = db.transaction(RECORDINGS_STORE, "readwrite");
+				const store = transaction.objectStore(RECORDINGS_STORE);
+
+				const entry: StoredRecordingEntry = {
+					startTime: metadata.startTime,
+					timestamp: new Date(metadata.startTime).toISOString(),
+					frameCount: metadata.frameCount,
+					sessionDuration: metadata.sessionDuration,
+					exerciseCount: metadata.exerciseGroups.length,
+					exercises: metadata.exerciseGroups.map((ex) => ({
+						name: ex.name,
+						duration: ex.duration,
+						frameCount: ex.frameCount,
+					})),
+					buffer,
+				};
+
+				store.put(entry);
+
+				const allRequest = store.getAll();
+				allRequest.onsuccess = () => {
+					const allEntries = (allRequest.result as StoredRecordingEntry[])
+						.slice()
+						.sort((a, b) => a.startTime - b.startTime);
+
+					const entriesToRemove = Math.max(0, allEntries.length - 20);
+					for (let i = 0; i < entriesToRemove; i++) {
+						store.delete(allEntries[i].startTime);
+					}
+				};
+
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () =>
+					reject(transaction.error ?? new Error("Failed to write recording to IndexedDB."));
+				transaction.onabort = () =>
+					reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
+			});
+
+			const sizeMB = (buffer.byteLength / (1024 * 1024)).toFixed(2);
+			console.log(
+				`💾 Recording saved to IndexedDB: pose_recording_${metadata.startTime} (${sizeMB} MB)`,
+			);
+		} finally {
+			db.close();
+		}
+	}
+
+	/**
+	 * Load a recording from IndexedDB by startTime.
+	 */
+	static async loadFromLocalStorage(startTime: number): Promise<{
+		metadata: RecordingMetadata;
+		frames: RecordedFrame[];
+	} | null> {
+		try {
+			const db = await PoseRecorder.openDatabase();
+			try {
+				const entry = await new Promise<StoredRecordingEntry | undefined>((resolve, reject) => {
+					const transaction = db.transaction(RECORDINGS_STORE, "readonly");
+					const store = transaction.objectStore(RECORDINGS_STORE);
+					const request = store.get(startTime);
+
+					request.onsuccess = () => resolve(request.result as StoredRecordingEntry | undefined);
+					request.onerror = () => reject(request.error ?? new Error("Failed to read recording."));
+				});
+
+				if (!entry) {
+					console.warn(`Recording not found: pose_recording_${startTime}`);
+					return null;
+				}
+
+				return PoseRecorder.importFromBinary(entry.buffer);
+			} finally {
+				db.close();
+			}
+		} catch (error) {
+			console.error("❌ Error loading from IndexedDB:", error);
+			return null;
+		}
+	}
+
+	/**
+	 * Get list of all saved recordings from IndexedDB.
+	 */
+	static async getRecordingsList(): Promise<Array<{
+		timestamp: string;
+		startTime: number;
+		frameCount: number;
+		sessionDuration?: number;
+		exerciseCount: number;
+		exercises: Array<{ name: string; duration?: number; frameCount: number }>;
+	}> | null> {
+		try {
+			const db = await PoseRecorder.openDatabase();
+			try {
+				const allEntries = await new Promise<StoredRecordingEntry[]>((resolve, reject) => {
+					const transaction = db.transaction(RECORDINGS_STORE, "readonly");
+					const store = transaction.objectStore(RECORDINGS_STORE);
+					const request = store.getAll();
+
+					request.onsuccess = () => resolve((request.result as StoredRecordingEntry[]) ?? []);
+					request.onerror = () => reject(request.error ?? new Error("Failed to read recordings list."));
+				});
+
+				return allEntries
+					.map((entry) => ({
+						timestamp: entry.timestamp,
+						startTime: entry.startTime,
+						frameCount: entry.frameCount,
+						sessionDuration: entry.sessionDuration,
+						exerciseCount: entry.exerciseCount,
+						exercises: entry.exercises,
+					}))
+					.sort((a, b) => b.startTime - a.startTime);
+			} finally {
+				db.close();
+			}
+		} catch (error) {
+			console.error("❌ Error reading recordings list from IndexedDB:", error);
+			return null;
+		}
+	}
+
+	/**
+	 * Clear a specific recording from IndexedDB.
+	 */
+	static async clearRecording(startTime: number): Promise<void> {
+		try {
+			const db = await PoseRecorder.openDatabase();
+			try {
+				await new Promise<void>((resolve, reject) => {
+					const transaction = db.transaction(RECORDINGS_STORE, "readwrite");
+					const store = transaction.objectStore(RECORDINGS_STORE);
+					store.delete(startTime);
+
+					transaction.oncomplete = () => resolve();
+					transaction.onerror = () =>
+						reject(transaction.error ?? new Error("Failed to clear recording from IndexedDB."));
+					transaction.onabort = () =>
+						reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
+				});
+			} finally {
+				db.close();
+			}
+
+			console.log(`🗑️  Recording cleared: pose_recording_${startTime}`);
+		} catch (error) {
+			console.error("❌ Error clearing recording from IndexedDB:", error);
+		}
 	}
 
 	/**
