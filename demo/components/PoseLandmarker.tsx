@@ -91,6 +91,7 @@ export default function PoseLandmarkerView({
 	const recordingStateRef = useRef<"idle" | "should_record" | "should_stop">("idle");
 	const exercisePhaseRef = useRef<"idle" | "countdown" | "active" | "finished">("idle");
 	const remainingValueRef = useRef(0);
+	const lastValueUpdateTimeRef = useRef(0);
 	const remainingUnitRef = useRef<"seconds" | "repetitions">("seconds");
 	const currentExerciseRef = useRef<(typeof EXERCISE_PLAN)[number] | null>(null);
 
@@ -441,9 +442,16 @@ export default function PoseLandmarkerView({
 								normalizedNewLabel === normalizedExerciseLabel &&
 								unit === "repetitions"
 							) {
+								const now = Date.now();
+								if (now - lastValueUpdateTimeRef.current < 1000) {
+									return;
+								}
+
 								setRemainingValue((prev) => {
 									const nextValue = prev > 0 ? prev - 1 : 0;
 									remainingValueRef.current = nextValue;
+									lastValueUpdateTimeRef.current = now;
+									//console.log("remainingValueRef changed at", new Date(now).toISOString());
 									if (nextValue <= 0) {
 										if (activeIntervalRef.current) {
 											clearInterval(activeIntervalRef.current);
