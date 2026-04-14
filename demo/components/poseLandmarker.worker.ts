@@ -66,6 +66,10 @@ function calculateAccuracyAndPredictions(prediction: ExercisePrediction | null, 
 		return [prediction, 0];
 	}
 
+	if (prediction.confidence < 0.78) {
+		return [{ ...prediction, label: "undefined" }, 0];
+	}
+
 	let totalAccuracy = 0;
 	let count = 0;
 
