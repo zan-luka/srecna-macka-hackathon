@@ -3,14 +3,22 @@ import type { Landmark } from "./types";
 /**
  * Binary format for recorded pose data.
  * Optimized for space efficiency (each landmark = 20 bytes).
+ * Supports full-session recording with exercise grouping.
  *
- * Format: [header][frames]
- * Header (28 bytes):
+ * Format: [header][exercise entries][frames]
+ * Header (36 bytes):
  *   - magic: 4 bytes "POSE" (0x504F5345)
- *   - version: 4 bytes (1)
+ *   - version: 4 bytes (2)
  *   - frameCount: 4 bytes uint32
  *   - startTime: 8 bytes float64 (milliseconds)
- *   - exerciseName: 8 bytes (max 8 chars, padded)
+ *   - exerciseCount: 4 bytes uint32
+ *   - sessionDuration: 8 bytes float64
+ *
+ * Each Exercise Entry (variable):
+ *   - nameLength: 2 bytes uint16
+ *   - name: variable bytes
+ *   - startFrameIndex: 4 bytes uint32
+ *   - frameCount: 4 bytes uint32
  *
  * Each Frame (variable):
  *   - frameIndex: 4 bytes uint32
@@ -31,6 +39,16 @@ export type RecordedFrame = {
 	frameIndex: number;
 	timestamp: number;
 	landmarks: Array<Array<Landmark>>;
+	exerciseIndex?: number; // Index of the exercise this frame belongs to
+};
+
+export type ExerciseGroup = {
+	name: string;
+	startFrameIndex: number;
+	frameCount: number;
+	startTime: number;
+	endTime?: number;
+	duration?: number;
 };
 
 export type RecordingMetadata = {
@@ -39,57 +57,136 @@ export type RecordingMetadata = {
 	frameCount: number;
 	startTime: number;
 	endTime?: number;
-	exerciseName: string;
-	duration?: number; // milliseconds
+	sessionDuration?: number; // milliseconds
+	exerciseGroups: ExerciseGroup[];
 };
 
 const MAGIC_NUMBER = 0x504f5345; // "POSE"
-const VERSION = 1;
+const VERSION = 2;
 const LANDMARKS_PER_PERSON = 33;
 const BYTES_PER_LANDMARK = 20; // 4 + 4 + 4 + 4 + 1 + 3 padding
+const DB_NAME = "pose_recordings_db";
+const DB_VERSION = 1;
+const RECORDINGS_STORE = "recordings";
+
+type StoredRecordingEntry = {
+	startTime: number;
+	timestamp: string;
+	frameCount: number;
+	sessionDuration?: number;
+	exerciseCount: number;
+	exercises: Array<{ name: string; duration?: number; frameCount: number }>;
+	buffer: ArrayBuffer;
+};
 
 /**
- * Records pose frames captured during an exercise session.
- * Stores frames in memory and can export as binary ArrayBuffer.
+ * Records pose frames captured during an entire workout session.
+ * Stores frames in memory and groups them by exercise for export.
  */
 export class PoseRecorder {
 	private frames: RecordedFrame[] = [];
 	private isRecording: boolean = false;
 	private startTime: number = 0;
-	private exerciseName: string = "";
+	private exerciseGroups: ExerciseGroup[] = [];
+	private currentExerciseIndex: number = -1;
+	private currentExerciseStartFrame: number = 0;
+	private currentExerciseStartTimestamp: number = 0; // Using frame timestamp, not Date.now()
 
 	/**
-	 * Start recording pose frames for an exercise.
-	 * @param exerciseName - Name of the exercise being performed
+	 * Start recording pose frames for the entire workout session.
 	 */
-	startRecording(exerciseName: string) {
+	startRecording() {
 		this.frames = [];
+		this.exerciseGroups = [];
 		this.isRecording = true;
 		this.startTime = Date.now();
-		this.exerciseName = exerciseName;
-		console.log(`📹 Started recording: ${exerciseName}`);
+		this.currentExerciseIndex = -1;
+		console.log(`📹 Started full-session recording`);
+	}
+
+	/**
+	 * Mark the start of a new exercise within the session.
+	 * @param exerciseName - Name of the exercise being started
+	 * @param frameIndex - Current frame index
+	 * @param timestamp - Frame timestamp (performance.now())
+	 */
+	markExerciseStart(exerciseName: string, frameIndex: number, timestamp: number) {
+		if (!this.isRecording) {
+			return;
+		}
+
+		// Close previous exercise if exists
+		if (this.currentExerciseIndex >= 0 && this.frames.length > 0) {
+			const lastFrame = this.frames[this.frames.length - 1];
+			this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
+			this.exerciseGroups[this.currentExerciseIndex].duration =
+				lastFrame.timestamp - this.currentExerciseStartTimestamp;
+			this.exerciseGroups[this.currentExerciseIndex].frameCount =
+				frameIndex - this.currentExerciseStartFrame;
+		}
+
+		// Start new exercise
+		this.currentExerciseIndex = this.exerciseGroups.length;
+		this.currentExerciseStartFrame = frameIndex;
+		this.currentExerciseStartTimestamp = timestamp;
+
+		this.exerciseGroups.push({
+			name: exerciseName,
+			startFrameIndex: frameIndex,
+			frameCount: 0,
+			startTime: timestamp,
+		});
+
+		console.log(
+			`📌 Exercise started: ${exerciseName} (frame ${frameIndex})`,
+		);
 	}
 
 	/**
 	 * Stop recording and prepare data for export.
+	 * Automatically saves the binary recording data to IndexedDB.
 	 * @returns Recording metadata
 	 */
 	stopRecording(): RecordingMetadata {
 		this.isRecording = false;
-		const endTime = Date.now();
-		console.log(
-			`⏹️  Stopped recording: ${this.frames.length} frames captured in ${endTime - this.startTime}ms`,
-		);
 
-		return {
+		// Finalize current exercise if exists
+		if (this.currentExerciseIndex >= 0 && this.frames.length > 0) {
+			const lastFrame = this.frames[this.frames.length - 1];
+			this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
+			this.exerciseGroups[this.currentExerciseIndex].duration =
+				lastFrame.timestamp - this.currentExerciseStartTimestamp;
+		}
+
+		// Calculate session duration from frame timestamps
+		let sessionDuration = 0;
+		if (this.frames.length > 0) {
+			const firstFrame = this.frames[0];
+			const lastFrame = this.frames[this.frames.length - 1];
+			sessionDuration = lastFrame.timestamp - firstFrame.timestamp;
+		}
+
+		const metadata: RecordingMetadata = {
 			magic: "POSE",
 			version: VERSION,
 			frameCount: this.frames.length,
 			startTime: this.startTime,
-			endTime: endTime,
-			exerciseName: this.exerciseName,
-			duration: endTime - this.startTime,
+			endTime: this.frames.length > 0 ? this.frames[this.frames.length - 1].timestamp : this.startTime,
+			sessionDuration: sessionDuration,
+			exerciseGroups: this.exerciseGroups,
 		};
+
+		console.log(
+			`⏹️  Stopped full-session recording: ${this.frames.length} frames, ${this.exerciseGroups.length} exercises in ${sessionDuration.toFixed(0)}ms`,
+		);
+
+		// Automatically save binary data to IndexedDB
+		const binaryBuffer = this.exportAsBinary(metadata);
+		void this.saveToIndexedDB(binaryBuffer, metadata).catch((error) => {
+			console.error("❌ Failed to save recording to IndexedDB:", error);
+		});
+
+		return metadata;
 	}
 
 	/**
@@ -104,6 +201,7 @@ export class PoseRecorder {
 			frameIndex,
 			timestamp,
 			landmarks,
+			exerciseIndex: this.currentExerciseIndex,
 		});
 	}
 
@@ -123,11 +221,207 @@ export class PoseRecorder {
 	}
 
 	/**
+	 * Open IndexedDB and create schema if needed.
+	 */
+	private static openDatabase(): Promise<IDBDatabase> {
+		if (typeof indexedDB === "undefined") {
+			return Promise.reject(new Error("IndexedDB is not available in this environment."));
+		}
+
+		return new Promise((resolve, reject) => {
+			const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+			request.onupgradeneeded = () => {
+				const db = request.result;
+				if (!db.objectStoreNames.contains(RECORDINGS_STORE)) {
+					db.createObjectStore(RECORDINGS_STORE, { keyPath: "startTime" });
+				}
+			};
+
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB."));
+		});
+	}
+
+	/**
+	 * Save the binary recording data to IndexedDB.
+	 * Keeps only the latest 20 recordings.
+	 */
+	private async saveToIndexedDB(buffer: ArrayBuffer, metadata: RecordingMetadata): Promise<void> {
+		const db = await PoseRecorder.openDatabase();
+
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const transaction = db.transaction(RECORDINGS_STORE, "readwrite");
+				const store = transaction.objectStore(RECORDINGS_STORE);
+
+				const entry: StoredRecordingEntry = {
+					startTime: metadata.startTime,
+					timestamp: new Date(metadata.startTime).toISOString(),
+					frameCount: metadata.frameCount,
+					sessionDuration: metadata.sessionDuration,
+					exerciseCount: metadata.exerciseGroups.length,
+					exercises: metadata.exerciseGroups.map((ex) => ({
+						name: ex.name,
+						duration: ex.duration,
+						frameCount: ex.frameCount,
+					})),
+					buffer,
+				};
+
+				store.put(entry);
+
+				const allRequest = store.getAll();
+				allRequest.onsuccess = () => {
+					const allEntries = (allRequest.result as StoredRecordingEntry[])
+						.slice()
+						.sort((a, b) => a.startTime - b.startTime);
+
+					const entriesToRemove = Math.max(0, allEntries.length - 20);
+					for (let i = 0; i < entriesToRemove; i++) {
+						store.delete(allEntries[i].startTime);
+					}
+				};
+
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () =>
+					reject(transaction.error ?? new Error("Failed to write recording to IndexedDB."));
+				transaction.onabort = () =>
+					reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
+			});
+
+			const sizeMB = (buffer.byteLength / (1024 * 1024)).toFixed(2);
+			console.log(
+				`💾 Recording saved to IndexedDB: pose_recording_${metadata.startTime} (${sizeMB} MB)`,
+			);
+		} finally {
+			db.close();
+		}
+	}
+
+	/**
+	 * Load a recording from IndexedDB by startTime.
+	 */
+	static async loadFromLocalStorage(startTime: number): Promise<{
+		metadata: RecordingMetadata;
+		frames: RecordedFrame[];
+	} | null> {
+		try {
+			const db = await PoseRecorder.openDatabase();
+			try {
+				const entry = await new Promise<StoredRecordingEntry | undefined>((resolve, reject) => {
+					const transaction = db.transaction(RECORDINGS_STORE, "readonly");
+					const store = transaction.objectStore(RECORDINGS_STORE);
+					const request = store.get(startTime);
+
+					request.onsuccess = () => resolve(request.result as StoredRecordingEntry | undefined);
+					request.onerror = () => reject(request.error ?? new Error("Failed to read recording."));
+				});
+
+				if (!entry) {
+					console.warn(`Recording not found: pose_recording_${startTime}`);
+					return null;
+				}
+
+				return PoseRecorder.importFromBinary(entry.buffer);
+			} finally {
+				db.close();
+			}
+		} catch (error) {
+			console.error("❌ Error loading from IndexedDB:", error);
+			return null;
+		}
+	}
+
+	/**
+	 * Get list of all saved recordings from IndexedDB.
+	 */
+	static async getRecordingsList(): Promise<Array<{
+		timestamp: string;
+		startTime: number;
+		frameCount: number;
+		sessionDuration?: number;
+		exerciseCount: number;
+		exercises: Array<{ name: string; duration?: number; frameCount: number }>;
+	}> | null> {
+		try {
+			const db = await PoseRecorder.openDatabase();
+			try {
+				const allEntries = await new Promise<StoredRecordingEntry[]>((resolve, reject) => {
+					const transaction = db.transaction(RECORDINGS_STORE, "readonly");
+					const store = transaction.objectStore(RECORDINGS_STORE);
+					const request = store.getAll();
+
+					request.onsuccess = () => resolve((request.result as StoredRecordingEntry[]) ?? []);
+					request.onerror = () => reject(request.error ?? new Error("Failed to read recordings list."));
+				});
+
+				return allEntries
+					.map((entry) => ({
+						timestamp: entry.timestamp,
+						startTime: entry.startTime,
+						frameCount: entry.frameCount,
+						sessionDuration: entry.sessionDuration,
+						exerciseCount: entry.exerciseCount,
+						exercises: entry.exercises,
+					}))
+					.sort((a, b) => b.startTime - a.startTime);
+			} finally {
+				db.close();
+			}
+		} catch (error) {
+			console.error("❌ Error reading recordings list from IndexedDB:", error);
+			return null;
+		}
+	}
+
+	/**
+	 * Clear a specific recording from IndexedDB.
+	 */
+	static async clearRecording(startTime: number): Promise<void> {
+		try {
+			const db = await PoseRecorder.openDatabase();
+			try {
+				await new Promise<void>((resolve, reject) => {
+					const transaction = db.transaction(RECORDINGS_STORE, "readwrite");
+					const store = transaction.objectStore(RECORDINGS_STORE);
+					store.delete(startTime);
+
+					transaction.oncomplete = () => resolve();
+					transaction.onerror = () =>
+						reject(transaction.error ?? new Error("Failed to clear recording from IndexedDB."));
+					transaction.onabort = () =>
+						reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
+				});
+			} finally {
+				db.close();
+			}
+
+			console.log(`🗑️  Recording cleared: pose_recording_${startTime}`);
+		} catch (error) {
+			console.error("❌ Error clearing recording from IndexedDB:", error);
+		}
+	}
+
+	/**
 	 * Export recorded frames as binary ArrayBuffer.
-	 * Format optimized for space efficiency.
+	 * Format optimized for space efficiency with exercise grouping.
 	 */
 	exportAsBinary(metadata: RecordingMetadata): ArrayBuffer {
-		const estimatedSize = 28 + this.frames.length * (16 + LANDMARKS_PER_PERSON * BYTES_PER_LANDMARK);
+		// Estimate size: header + exercise entries + frames
+		let estimatedSize = 36; // header
+
+		// Exercise entries
+		for (const ex of metadata.exerciseGroups) {
+			estimatedSize += 2; // nameLength
+			estimatedSize += new TextEncoder().encode(ex.name).length;
+			estimatedSize += 8; // startFrameIndex + frameCount
+		}
+
+		// Frames
+		estimatedSize +=
+			this.frames.length * (16 + LANDMARKS_PER_PERSON * BYTES_PER_LANDMARK);
+
 		const buffer = new ArrayBuffer(estimatedSize);
 		const view = new DataView(buffer);
 		let offset = 0;
@@ -141,13 +435,25 @@ export class PoseRecorder {
 		offset += 4;
 		view.setFloat64(offset, metadata.startTime, true);
 		offset += 8;
-
-		// Write exercise name (8 bytes, padded)
-		const nameBytes = new TextEncoder().encode(metadata.exerciseName.substring(0, 8));
-		for (let i = 0; i < 8; i++) {
-			view.setUint8(offset + i, nameBytes[i] ?? 0);
-		}
+		view.setUint32(offset, metadata.exerciseGroups.length, true);
+		offset += 4;
+		view.setFloat64(offset, metadata.sessionDuration ?? 0, true);
 		offset += 8;
+
+		// Write exercise entries
+		for (const ex of metadata.exerciseGroups) {
+			const nameBytes = new TextEncoder().encode(ex.name);
+			view.setUint16(offset, nameBytes.length, true);
+			offset += 2;
+			for (let i = 0; i < nameBytes.length; i++) {
+				view.setUint8(offset + i, nameBytes[i]);
+			}
+			offset += nameBytes.length;
+			view.setUint32(offset, ex.startFrameIndex, true);
+			offset += 4;
+			view.setUint32(offset, ex.frameCount, true);
+			offset += 4;
+		}
 
 		// Write frames
 		for (const frame of this.frames) {
@@ -197,24 +503,42 @@ export class PoseRecorder {
 
 	/**
 	 * Export as CSV for analysis in spreadsheets.
-	 * Each row: frameIndex, timestamp, personIndex, landmarkIndex, x, y, z, visibility
+	 * Each row: frameIndex, timestamp, exerciseName, personIndex, landmarkIndex, x, y, z, visibility
 	 */
 	exportAsCSV(metadata: RecordingMetadata): string {
 		const lines: string[] = [
-			"# Pose Recording Export",
-			`# Exercise: ${metadata.exerciseName}`,
-			`# Duration: ${metadata.duration}ms`,
+			"# Full Session Pose Recording Export",
+			`# Total Duration: ${metadata.sessionDuration}ms`,
 			`# Frames: ${metadata.frameCount}`,
+			`# Exercises: ${metadata.exerciseGroups.length}`,
 			`# Start: ${new Date(metadata.startTime).toISOString()}`,
-			"frameIndex,timestamp,personIndex,landmarkIndex,x,y,z,visibility",
+			"frameIndex,timestamp,exerciseName,personIndex,landmarkIndex,x,y,z,visibility",
 		];
 
+		// Build exercise name map from frame exerciseIndex
+		const exerciseMap = new Map<number, string>();
+		for (const ex of metadata.exerciseGroups) {
+			const frames = this.frames.filter(
+				(f) =>
+					f.frameIndex >= ex.startFrameIndex &&
+					f.frameIndex < ex.startFrameIndex + ex.frameCount
+			);
+			for (const frame of frames) {
+				exerciseMap.set(frame.frameIndex, ex.name);
+			}
+		}
+
 		for (const frame of this.frames) {
+			const exerciseName = exerciseMap.get(frame.frameIndex) || "unknown";
 			for (let personIdx = 0; personIdx < frame.landmarks.length; personIdx++) {
-				for (let lmIdx = 0; lmIdx < frame.landmarks[personIdx].length; lmIdx++) {
+				for (
+					let lmIdx = 0;
+					lmIdx < frame.landmarks[personIdx].length;
+					lmIdx++
+				) {
 					const lm = frame.landmarks[personIdx][lmIdx];
 					lines.push(
-						`${frame.frameIndex},${frame.timestamp},${personIdx},${lmIdx},${lm.x},${lm.y},${lm.z},${lm.visibility ?? 0}`,
+						`${frame.frameIndex},${frame.timestamp},${exerciseName},${personIdx},${lmIdx},${lm.x},${lm.y},${lm.z},${lm.visibility ?? 0}`,
 					);
 				}
 			}
@@ -271,18 +595,39 @@ export class PoseRecorder {
 		offset += 4;
 		const startTime = view.getFloat64(offset, true);
 		offset += 8;
-
-		// Read exercise name
-		const nameBytes = new Uint8Array(buffer, offset, 8);
-		const exerciseName = new TextDecoder().decode(nameBytes).replace(/\0/g, "");
+		const exerciseCount = view.getUint32(offset, true);
+		offset += 4;
+		const sessionDuration = view.getFloat64(offset, true);
 		offset += 8;
+
+		// Read exercise entries
+		const exerciseGroups: ExerciseGroup[] = [];
+		for (let i = 0; i < exerciseCount; i++) {
+			const nameLength = view.getUint16(offset, true);
+			offset += 2;
+			const nameBytes = new Uint8Array(buffer, offset, nameLength);
+			const name = new TextDecoder().decode(nameBytes);
+			offset += nameLength;
+			const startFrameIndex = view.getUint32(offset, true);
+			offset += 4;
+			const frameCountEx = view.getUint32(offset, true);
+			offset += 4;
+
+			exerciseGroups.push({
+				name,
+				startFrameIndex,
+				frameCount: frameCountEx,
+				startTime: 0,
+			});
+		}
 
 		const metadata: RecordingMetadata = {
 			magic: "POSE",
 			version,
 			frameCount,
 			startTime,
-			exerciseName,
+			sessionDuration,
+			exerciseGroups,
 		};
 
 		// Read frames
@@ -316,10 +661,24 @@ export class PoseRecorder {
 				landmarks.push(personLandmarks);
 			}
 
+			// Find exercise index for this frame
+			let exerciseIndex = -1;
+			for (let ex = 0; ex < exerciseGroups.length; ex++) {
+				const exGroup = exerciseGroups[ex];
+				if (
+					frameIndex >= exGroup.startFrameIndex &&
+					frameIndex < exGroup.startFrameIndex + exGroup.frameCount
+				) {
+					exerciseIndex = ex;
+					break;
+				}
+			}
+
 			frames.push({
 				frameIndex,
 				timestamp,
 				landmarks,
+				exerciseIndex,
 			});
 		}
 

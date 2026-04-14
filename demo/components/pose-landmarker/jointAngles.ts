@@ -37,6 +37,36 @@ export const COMMON_JOINT_ANGLES = {
 } as const;
 
 /**
+ * Calculate a signed lateral lean angle from shoulder midpoint to hip midpoint.
+ * Positive values indicate a lean toward the right side of the screen.
+ * Negative values indicate a lean toward the left side of the screen.
+ *
+ * This is useful for comparing whether the pelvis shifts sideways relative to the shoulders.
+ */
+export function calculateLateralLeanAngle(leftShoulder: Landmark, rightShoulder: Landmark, leftHip: Landmark, rightHip: Landmark): number {
+	const shoulderMidpoint = {
+		x: (leftShoulder.x + rightShoulder.x) / 2,
+		y: (leftShoulder.y + rightShoulder.y) / 2,
+		z: ((leftShoulder.z ?? 0) + (rightShoulder.z ?? 0)) / 2,
+	};
+
+	const hipMidpoint = {
+		x: (leftHip.x + rightHip.x) / 2,
+		y: (leftHip.y + rightHip.y) / 2,
+		z: ((leftHip.z ?? 0) + (rightHip.z ?? 0)) / 2,
+	};
+
+	const dx = hipMidpoint.x - shoulderMidpoint.x;
+	const dy = hipMidpoint.y - shoulderMidpoint.y;
+
+	if (dx === 0 && dy === 0) {
+		return 0;
+	}
+
+	return Math.round((Math.atan2(dx, dy) * 180) / Math.PI * 10) / 10;
+}
+
+/**
  * Calculate the angle (in degrees) at a joint between three landmarks.
  * Uses atan2 for robust angle calculation working with any orientation.
  *

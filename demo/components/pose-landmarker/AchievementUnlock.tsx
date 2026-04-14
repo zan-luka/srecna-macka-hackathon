@@ -24,8 +24,6 @@ export const AchievementUnlock: React.FC<AchievementUnlockProps> = ({ achievemen
 		return () => clearTimeout(timer);
 	}, [achievement]);
 
-	if (!achievement) return null;
-
 	// Derive particles during render instead of storing in state
 	const particles = Array.from({ length: 8 }, (_, i) => ({
 		id: i,
@@ -34,22 +32,31 @@ export const AchievementUnlock: React.FC<AchievementUnlockProps> = ({ achievemen
 	}));
 
 	return (
-		<div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
+		<div
+			className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none"
+			style={{ display: achievement ? "flex" : "none" }}
+		>
 			{/* Celebration Modal */}
 			<div
 				className="bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-2xl shadow-2xl p-8 text-center transform animate-celebration-pop"
 				style={{
 					animation: "celebrationPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards",
-				}}
-			>
-				<div className="text-6xl mb-4 animate-bounce">{achievement.icon}</div>
-				<h2 className="text-3xl font-bold mb-2">Achievement Unlocked!</h2>
-				<h3 className="text-2xl font-semibold mb-1">{achievement.name}</h3>
-				<p className="text-sm opacity-90">{achievement.description}</p>
-			</div>
+				display: achievement ? "block" : "none",
+			}}
+		>
+			{achievement && (
+				<>
+					<div className="text-6xl mb-4 animate-bounce">{achievement.icon}</div>
+					<h2 className="text-3xl font-bold mb-2">Achievement Unlocked!</h2>
+					<h3 className="text-2xl font-semibold mb-1">{achievement.name}</h3>
+					<p className="text-sm opacity-90">{achievement.description}</p>
+				</>
+			)}
+		</div>
 
-			{/* Particle Burst */}
-			{particles.map((particle) => (
+		{/* Particle Burst */}
+		{achievement &&
+			particles.map((particle) => (
 				<div
 					key={particle.id}
 					className="absolute text-3xl"
@@ -68,36 +75,36 @@ export const AchievementUnlock: React.FC<AchievementUnlockProps> = ({ achievemen
 				</div>
 			))}
 
-			<style>{`
-				@keyframes celebrationPop {
-					0% {
-						transform: scale(0) rotate(-10deg);
-						opacity: 0;
-					}
-					50% {
-						transform: scale(1.1) rotate(5deg);
-					}
-					100% {
-						transform: scale(1) rotate(0deg);
-						opacity: 1;
-					}
+		<style>{`
+			@keyframes celebrationPop {
+				0% {
+					transform: scale(0) rotate(-10deg);
+					opacity: 0;
 				}
+				50% {
+					transform: scale(1.1) rotate(5deg);
+				}
+				100% {
+					transform: scale(1) rotate(0deg);
+					opacity: 1;
+				}
+			}
 
-				@keyframes particleBurst {
-					0% {
-						opacity: 1;
-						transform: translate(0, 0) scale(1);
-					}
-					100% {
-						opacity: 0;
-						transform: translate(var(--tx), var(--ty)) scale(0);
-					}
+			@keyframes particleBurst {
+				0% {
+					opacity: 1;
+					transform: translate(0, 0) scale(1);
 				}
+				100% {
+					opacity: 0;
+					transform: translate(var(--tx), var(--ty)) scale(0);
+				}
+			}
 
-				.animate-celebration-pop {
-					animation: celebrationPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-				}
-			`}</style>
-		</div>
-	);
+			.animate-celebration-pop {
+				animation: celebrationPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+			}
+		`}</style>
+	</div>
+);
 };
