@@ -25,18 +25,7 @@ export const FormFeedbackOverlay: React.FC<FormFeedbackOverlayProps> = ({
 
 	return (
 		<>
-			{/* Total Session Points - Top Left Corner */}
-			<div
-				className="fixed top-16 left-3 px-4 py-3 bg-gradient-to-br from-yellow-400 to-amber-500 text-white rounded-lg shadow-lg font-bold text-lg z-30 flex items-center gap-2"
-				style={{
-					display: totalSessionPoints > 0 ? "flex" : "none",
-				}}
-				suppressHydrationWarning
-			>
-				<span>💰</span>
-				<span>{totalSessionPoints}</span>
-			</div>
-
+			
 			{/* Form Quality - Right of center controls */}
 			<div
 				className="fixed top-12 left-1/2 translate-x-full ml-24 px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg shadow-lg font-bold text-xs z-30 animate-bounce"

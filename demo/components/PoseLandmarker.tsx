@@ -58,6 +58,9 @@ export default function PoseLandmarkerView({
 	const averageAccuracyRef = useRef(0);
 	const averageAccuracySampleCountRef = useRef(0);
 	const gamificationRef = useRef<UseGameificationReturn | null>(null);
+	const exerciseMaxPointsRef = useRef(50); // Max points per exercise
+	const isTimedExerciseRef = useRef(false); // Track if current exercise is timed
+	const lastRepValueRef = useRef(0); // Track previous rep count for rep-based exercises
 
 	// Gamification
 	const gamification = useGameification();
@@ -146,6 +149,12 @@ export default function PoseLandmarkerView({
 		}
 		exerciseCompletedRef.current = true;
 
+		// Log exercise completion
+		const exerciseName = currentExerciseRef.current?.name ?? "Unknown";
+		const exerciseType = isTimedExerciseRef.current ? "TIMED" : "REP-BASED";
+		const totalSessionPoints = gamificationRef.current?.sessionPoints ?? 0;
+		console.log(`✅ Exercise "${exerciseName}" (${exerciseType}) completed | 💰 Session Total: ${totalSessionPoints} pts`);
+
 		clearWorkoutIntervals();
 		setExerciseIndex((previousIndex) => {
 			const nextIndex = previousIndex + 1;
@@ -211,6 +220,19 @@ export default function PoseLandmarkerView({
 			: Math.max(1, currentExercise.repetitions ?? 1);
 		lastPredictionRef.current = undefined;
 
+		// Set exercise type and reset tracking
+		isTimedExerciseRef.current = isDurationExercise;
+		lastRepValueRef.current = targetValue;
+		
+		// Calculate max points per rep (for rep-based) or per interval (for timed)
+		if (!isDurationExercise && typeof currentExercise.repetitions === "number") {
+			// For rep-based exercises: max 50 points total / number of reps
+			exerciseMaxPointsRef.current = 50 / currentExercise.repetitions;
+		} else {
+			// For timed exercises: max 50 points total
+			exerciseMaxPointsRef.current = 50;
+		}
+
 		const nextUnit = isDurationExercise ? "seconds" : "repetitions";
 		setRemainingUnit(nextUnit);
 		remainingUnitRef.current = nextUnit;
@@ -274,6 +296,33 @@ export default function PoseLandmarkerView({
 		remainingValueRef.current = remainingValue;
 		remainingUnitRef.current = remainingUnit;
 		currentExerciseRef.current = currentExercise;
+		
+		// Handle rep completion for rep-based exercises
+		if (exercisePhase === "active" && !isTimedExerciseRef.current && remainingValue < lastRepValueRef.current) {
+			const averageAccuracy = averageAccuracyRef.current;
+			const sampleCount = averageAccuracySampleCountRef.current;
+
+			if (sampleCount > 0 && averageAccuracy > 0) {
+				// Calculate points for completed rep (max points per rep determined by total reps)
+				const pointsFromAccuracy = Math.max(0, Math.round(averageAccuracy * exerciseMaxPointsRef.current));
+				
+				if (pointsFromAccuracy > 0) {
+					gamificationRef.current?.addSessionPoints(pointsFromAccuracy);
+				}
+
+				const totalSessionPoints = gamificationRef.current?.sessionPoints ?? 0;
+				const repNum = lastRepValueRef.current - remainingValue;
+				const maxPerRep = Math.round(exerciseMaxPointsRef.current * 10) / 10; // Show with 1 decimal
+				console.log(`💪 [REP-BASED] Rep ${repNum} completed | Accuracy: ${(averageAccuracy * 100).toFixed(1)}% | ➕ ${pointsFromAccuracy}/${maxPerRep} pts | 💰 Session Total: ${totalSessionPoints} pts`);
+
+				// Reset accuracy tracking for next rep
+				averageAccuracyRef.current = 0;
+				averageAccuracySampleCountRef.current = 0;
+			}
+
+			lastRepValueRef.current = remainingValue;
+		}
+		
 		if (exercisePhase !== "active") {
 			averageAccuracyRef.current = 0;
 			averageAccuracySampleCountRef.current = 0;
@@ -294,12 +343,23 @@ export default function PoseLandmarkerView({
 			}
 
 			gamificationRef.current?.updateSessionAccuracy(averageAccuracy);
-			const pointsFromAccuracy = Math.max(0, Math.round(averageAccuracy * 10));
-			if (pointsFromAccuracy > 0) {
-				gamificationRef.current?.addSessionPoints(pointsFromAccuracy);
-			}
+			
+			// For timed exercises: Calculate points every 500ms
+			if (isTimedExerciseRef.current) {
+				// Distribute 50 points across ~10 intervals per exercise (500ms × 10 = 5 seconds)
+				const maxPointsPerInterval = exerciseMaxPointsRef.current / 10;
+				const pointsFromAccuracy = Math.max(0, Math.round(averageAccuracy * maxPointsPerInterval));
+				
+				if (pointsFromAccuracy > 0) {
+					gamificationRef.current?.addSessionPoints(pointsFromAccuracy);
+				}
 
-			console.log(`Average accuracy: ${averageAccuracy.toFixed(3)} (based on ${sampleCount} samples) - +${pointsFromAccuracy} points`);
+				const totalSessionPoints = gamificationRef.current?.sessionPoints ?? 0;
+				console.log(`⏱️ [TIMED] Accuracy: ${(averageAccuracy * 100).toFixed(1)}% | ➕ ${pointsFromAccuracy}/${Math.round(maxPointsPerInterval)} pts | 💰 Session Total: ${totalSessionPoints} pts`);
+			} else {
+				// For rep-based exercises: Calculate when rep completes (handled in effect tracking remainingValue)
+				console.log(`🔄 [REP] Collecting accuracy: ${(averageAccuracy * 100).toFixed(1)}% (${sampleCount} samples)`);
+			}
 
 			averageAccuracyRef.current = 0;
 			averageAccuracySampleCountRef.current = 0;
@@ -464,8 +524,8 @@ export default function PoseLandmarkerView({
 					if (message.type === "normalized_landmarks") {
 						const nlm = message as NormalizedLandmarksMessage;
 						const accuracy = nlm.accuracy;
-						console.log("Received accuracy from worker:", accuracy);
-						if (typeof accuracy === "number" && Number.isFinite(accuracy)) {
+						// Only include non-zero accuracy values in the average
+						if (typeof accuracy === "number" && Number.isFinite(accuracy) && accuracy > 0) {
 							const previousCount = averageAccuracySampleCountRef.current;
 							const nextCount = previousCount + 1;
 							averageAccuracyRef.current =
@@ -654,10 +714,22 @@ export default function PoseLandmarkerView({
 			sessionStartTimeRef.current
 		) {
 			const duration = Date.now() - sessionStartTimeRef.current;
-			// Use realistic accuracy based on current streak (higher streak = likely better form)
 			const accuracy = Math.min(0.98, 0.7 + gamification.gameStats.currentStreak * 0.03);
 			gamification.updateSessionAccuracy(accuracy);
 			gamification.recordGameSession(duration);
+
+			// Log session completion summary
+			const totalSessionPoints = gamification.sessionPoints;
+			const maxPossiblePoints = EXERCISE_PLAN.length * 50;
+			const durationSeconds = (duration / 1000).toFixed(1);
+			const timedExercises = EXERCISE_PLAN.filter(e => typeof e.durationSeconds === "number").length;
+			const repExercises = EXERCISE_PLAN.filter(e => typeof e.repetitions === "number").length;
+			
+			console.log(`🎉 WORKOUT COMPLETE! 🎉`);
+			console.log(`⏱️  Duration: ${durationSeconds}s | 🎯 Points Earned: ${totalSessionPoints}/${maxPossiblePoints} pts`);
+			console.log(`📊 Exercises: ${EXERCISE_PLAN.length} total (${timedExercises} timed, ${repExercises} rep-based)`);
+			console.log(`📈 Accuracy: ${(accuracy * 100).toFixed(1)}% | 🏃 Total Reps: ${gamification.sessionReps}`);
+
 			sessionStartTimeRef.current = null;
 		}
 	}, [exercisePhase, gamification]);
