@@ -24,6 +24,7 @@ export interface UseGameificationReturn {
 		description: string;
 	} | null;
 	updateSessionAccuracy: (accuracy: number) => void;
+	addSessionPoints: (points: number) => void;
 	updateSessionReps: (reps: number) => void;
 	recordGameSession: (duration: number) => void;
 	setUnlockedAchievement: (achievement: { id: string; name: string; icon: string; description: string } | null) => void;
@@ -94,6 +95,15 @@ export function useGameification(): UseGameificationReturn {
 		setSessionAccuracy(accuracy);
 	};
 
+	const addSessionPoints = (points: number) => {
+		const safePoints = Math.max(0, Math.floor(points));
+		if (safePoints <= 0) {
+			return;
+		}
+
+		setSessionPoints((previousPoints) => previousPoints + safePoints);
+	};
+
 	const updateSessionReps = (reps: number) => {
 		const previousReps = sessionReps;
 		setSessionReps(reps);
@@ -151,6 +161,7 @@ export function useGameification(): UseGameificationReturn {
 		sessionReps,
 		unlockedAchievement,
 		updateSessionAccuracy,
+		addSessionPoints,
 		updateSessionReps,
 		recordGameSession,
 		setUnlockedAchievement,

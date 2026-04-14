@@ -13,13 +13,14 @@ import {
 	type ChartOptions,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
-import type { RecordedFrame } from "@/components/pose-landmarker/poseRecorder";
+import type { RecordedFrame, ExerciseGroup } from "@/components/pose-landmarker/poseRecorder";
 import { calculateLateralLeanAngle } from "@/components/pose-landmarker/jointAngles";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
 type HipLeanChartProps = {
 	frames: RecordedFrame[];
+	exerciseGroups?: ExerciseGroup[];
 };
 
 function getLeanAngle(frame: RecordedFrame) {
@@ -40,7 +41,7 @@ function getLeanAngle(frame: RecordedFrame) {
 	return calculateLateralLeanAngle(leftShoulder, rightShoulder, leftHip, rightHip);
 }
 
-export function HipLeanChart({ frames }: HipLeanChartProps) {
+export function HipLeanChart({ frames, exerciseGroups = [] }: HipLeanChartProps) {
 	const chartData = useMemo<ChartData<"line", Array<number | null>, string>>(() => {
 		if (frames.length === 0) {
 			return { labels: [], datasets: [] };
@@ -63,6 +64,58 @@ export function HipLeanChart({ frames }: HipLeanChartProps) {
 			],
 		};
 	}, [frames]);
+
+	const exerciseLinesPlugin = useMemo(() => {
+		return {
+			id: "exerciseLines",
+			afterDatasetsDraw(chart: any) {
+				if (!exerciseGroups.length || !frames.length) return;
+
+				const ctx = chart.ctx;
+				const xScale = chart.scales.x;
+				const yScale = chart.scales.y;
+				const firstTimestamp = frames[0]?.timestamp ?? 0;
+
+				exerciseGroups.forEach((exercise) => {
+					// Draw start line (green)
+					const startTimeRelative = exercise.startTime - firstTimestamp;
+					const startLabel = `${(startTimeRelative / 1000).toFixed(1)}s`;
+					const startX = xScale.getPixelForValue(startLabel);
+
+					if (startX !== undefined && !Number.isNaN(startX)) {
+						ctx.save();
+						ctx.strokeStyle = "rgba(34, 197, 94, 0.5)";
+						ctx.lineWidth = 2;
+						ctx.setLineDash([5, 5]);
+						ctx.beginPath();
+						ctx.moveTo(startX, yScale.top);
+						ctx.lineTo(startX, yScale.bottom);
+						ctx.stroke();
+						ctx.restore();
+					}
+
+					// Draw end line (red)
+					if (exercise.endTime) {
+						const endTimeRelative = exercise.endTime - firstTimestamp;
+						const endLabel = `${(endTimeRelative / 1000).toFixed(1)}s`;
+						const endX = xScale.getPixelForValue(endLabel);
+
+						if (endX !== undefined && !Number.isNaN(endX)) {
+							ctx.save();
+							ctx.strokeStyle = "rgba(239, 68, 68, 0.5)";
+							ctx.lineWidth = 2;
+							ctx.setLineDash([5, 5]);
+							ctx.beginPath();
+							ctx.moveTo(endX, yScale.top);
+							ctx.lineTo(endX, yScale.bottom);
+							ctx.stroke();
+							ctx.restore();
+						}
+					}
+				});
+			},
+		};
+	}, [exerciseGroups, frames]);
 
 	const chartOptions = useMemo<ChartOptions<"line">>(
 		() => ({
@@ -112,7 +165,7 @@ export function HipLeanChart({ frames }: HipLeanChartProps) {
 	return (
 		<div className="space-y-3">
 			<div className="h-80 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-				<Line data={chartData} options={chartOptions} />
+				<Line data={chartData} options={chartOptions} plugins={[exerciseLinesPlugin]} />
 			</div>
 			<p className="text-xs text-zinc-500">
 				Positive values indicate the hips drift to the right relative to the shoulders; negative values indicate a left lean.

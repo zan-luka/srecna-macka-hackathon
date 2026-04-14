@@ -196,15 +196,15 @@ export default function AnalyticsPage() {
 							<div className="space-y-8">
 								<div>
 									<h3 className="mb-3 text-sm font-semibold uppercase tracking-widest text-zinc-500">Knee angles</h3>
-									<KneePositionChart frames={selectedRecording.frames} />
+									<KneePositionChart frames={selectedRecording.frames} exerciseGroups={selectedRecording.metadata.exerciseGroups} />
 								</div>
 								<div>
 									<h3 className="mb-3 text-sm font-semibold uppercase tracking-widest text-zinc-500">Hip lean</h3>
-									<HipLeanChart frames={selectedRecording.frames} />
+									<HipLeanChart frames={selectedRecording.frames} exerciseGroups={selectedRecording.metadata.exerciseGroups} />
 								</div>
 								<div>
 									<h3 className="mb-3 text-sm font-semibold uppercase tracking-widest text-zinc-500">Torso angle</h3>
-									<TorsoAngleChart frames={selectedRecording.frames} />
+									<TorsoAngleChart frames={selectedRecording.frames} exerciseGroups={selectedRecording.metadata.exerciseGroups} />
 								</div>
 							</div>
 						) : (

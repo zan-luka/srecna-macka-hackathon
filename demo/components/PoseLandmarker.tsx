@@ -55,10 +55,17 @@ export default function PoseLandmarkerView({
 	const lastRepCountTimeRef = useRef(0);
 	const latestWorkerMessageRef = useRef<NormalizedLandmarksMessage | null>(null);
 	const lastSyncMessageRef = useRef<NormalizedLandmarksMessage | null>(null);
+	const averageAccuracyRef = useRef(0);
+	const averageAccuracySampleCountRef = useRef(0);
+	const gamificationRef = useRef<UseGameificationReturn | null>(null);
 
 	// Gamification
 	const gamification = useGameification();
 	const sessionStartTimeRef = useRef<number | null>(null);
+
+	useEffect(() => {
+		gamificationRef.current = gamification;
+	}, [gamification]);
 
 	const [error, setError] = useState<string | null>(null);
 	const [isReady, setIsReady] = useState(false);
@@ -267,7 +274,39 @@ export default function PoseLandmarkerView({
 		remainingValueRef.current = remainingValue;
 		remainingUnitRef.current = remainingUnit;
 		currentExerciseRef.current = currentExercise;
+		if (exercisePhase !== "active") {
+			averageAccuracyRef.current = 0;
+			averageAccuracySampleCountRef.current = 0;
+		}
 	}, [exercisePhase, remainingValue, remainingUnit, currentExercise]);
+
+	useEffect(() => {
+		const interval = setInterval(() => {
+			if (exercisePhaseRef.current !== "active") {
+				return;
+			}
+
+			const averageAccuracy = averageAccuracyRef.current;
+			const sampleCount = averageAccuracySampleCountRef.current;
+
+			if (!sampleCount || averageAccuracy <= 0) {
+				return;
+			}
+
+			gamificationRef.current?.updateSessionAccuracy(averageAccuracy);
+			const pointsFromAccuracy = Math.max(0, Math.round(averageAccuracy * 10));
+			if (pointsFromAccuracy > 0) {
+				gamificationRef.current?.addSessionPoints(pointsFromAccuracy);
+			}
+
+			console.log(`Average accuracy: ${averageAccuracy.toFixed(3)} (based on ${sampleCount} samples) - +${pointsFromAccuracy} points`);
+
+			averageAccuracyRef.current = 0;
+			averageAccuracySampleCountRef.current = 0;
+		}, 500);
+
+		return () => clearInterval(interval);
+	}, []);
 
 	useEffect(() => {
 		let isMounted = true;
@@ -424,6 +463,16 @@ export default function PoseLandmarkerView({
 					const message = event.data;
 					if (message.type === "normalized_landmarks") {
 						const nlm = message as NormalizedLandmarksMessage;
+						const accuracy = nlm.accuracy;
+						console.log("Received accuracy from worker:", accuracy);
+						if (typeof accuracy === "number" && Number.isFinite(accuracy)) {
+							const previousCount = averageAccuracySampleCountRef.current;
+							const nextCount = previousCount + 1;
+							averageAccuracyRef.current =
+								(averageAccuracyRef.current * previousCount + accuracy) / nextCount;
+							averageAccuracySampleCountRef.current = nextCount;
+						}
+
 						const newLabel = nlm.predictions?.[0]?.label;
 						const phase = exercisePhaseRef.current;
 						const unit = remainingUnitRef.current;
