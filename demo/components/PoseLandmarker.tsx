@@ -558,15 +558,16 @@ export default function PoseLandmarkerView({
 		currentExercise,
 	]);
 
-	// Handle recording based on session state
+	// Handle recording based on session state and exercise completion
 	useEffect(() => {
 		if (!workerRef.current) {
 			return;
 		}
 
 		// Determine desired recording state
+		// Stop recording when: session ends OR all exercises finish
 		let desiredState: "should_record" | "should_stop" | "idle" = "idle";
-		if (sessionState === "running") {
+		if (sessionState === "running" && exercisePhase !== "finished") {
 			desiredState = "should_record";
 		} else {
 			desiredState = "should_stop";
@@ -586,7 +587,7 @@ export default function PoseLandmarkerView({
 			}
 			recordingStateRef.current = desiredState;
 		}
-	}, [sessionState]);
+	}, [sessionState, exercisePhase]);
 
 	// Track gamification data when exercise finishes
 	useEffect(() => {

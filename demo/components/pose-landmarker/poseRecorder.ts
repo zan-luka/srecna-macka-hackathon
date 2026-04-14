@@ -77,7 +77,7 @@ export class PoseRecorder {
 	private exerciseGroups: ExerciseGroup[] = [];
 	private currentExerciseIndex: number = -1;
 	private currentExerciseStartFrame: number = 0;
-	private currentExerciseStartTime: number = 0;
+	private currentExerciseStartTimestamp: number = 0; // Using frame timestamp, not Date.now()
 
 	/**
 	 * Start recording pose frames for the entire workout session.
@@ -95,34 +95,33 @@ export class PoseRecorder {
 	 * Mark the start of a new exercise within the session.
 	 * @param exerciseName - Name of the exercise being started
 	 * @param frameIndex - Current frame index
+	 * @param timestamp - Frame timestamp (performance.now())
 	 */
-	markExerciseStart(exerciseName: string, frameIndex: number) {
+	markExerciseStart(exerciseName: string, frameIndex: number, timestamp: number) {
 		if (!this.isRecording) {
 			return;
 		}
 
 		// Close previous exercise if exists
-		if (this.currentExerciseIndex >= 0) {
+		if (this.currentExerciseIndex >= 0 && this.frames.length > 0) {
 			const lastFrame = this.frames[this.frames.length - 1];
-			if (lastFrame) {
-				this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
-				this.exerciseGroups[this.currentExerciseIndex].duration =
-					lastFrame.timestamp - this.currentExerciseStartTime;
-				this.exerciseGroups[this.currentExerciseIndex].frameCount =
-					frameIndex - this.currentExerciseStartFrame;
-			}
+			this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
+			this.exerciseGroups[this.currentExerciseIndex].duration =
+				lastFrame.timestamp - this.currentExerciseStartTimestamp;
+			this.exerciseGroups[this.currentExerciseIndex].frameCount =
+				frameIndex - this.currentExerciseStartFrame;
 		}
 
 		// Start new exercise
 		this.currentExerciseIndex = this.exerciseGroups.length;
 		this.currentExerciseStartFrame = frameIndex;
-		this.currentExerciseStartTime = Date.now();
+		this.currentExerciseStartTimestamp = timestamp;
 
 		this.exerciseGroups.push({
 			name: exerciseName,
 			startFrameIndex: frameIndex,
 			frameCount: 0,
-			startTime: this.currentExerciseStartTime,
+			startTime: timestamp,
 		});
 
 		console.log(
@@ -136,21 +135,25 @@ export class PoseRecorder {
 	 */
 	stopRecording(): RecordingMetadata {
 		this.isRecording = false;
-		const endTime = Date.now();
 
 		// Finalize current exercise if exists
-		if (this.currentExerciseIndex >= 0) {
+		if (this.currentExerciseIndex >= 0 && this.frames.length > 0) {
 			const lastFrame = this.frames[this.frames.length - 1];
-			if (lastFrame) {
-				this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
-				this.exerciseGroups[this.currentExerciseIndex].duration =
-					lastFrame.timestamp - this.currentExerciseStartTime;
-			}
+			this.exerciseGroups[this.currentExerciseIndex].endTime = lastFrame.timestamp;
+			this.exerciseGroups[this.currentExerciseIndex].duration =
+				lastFrame.timestamp - this.currentExerciseStartTimestamp;
 		}
 
-		const sessionDuration = endTime - this.startTime;
+		// Calculate session duration from frame timestamps
+		let sessionDuration = 0;
+		if (this.frames.length > 0) {
+			const firstFrame = this.frames[0];
+			const lastFrame = this.frames[this.frames.length - 1];
+			sessionDuration = lastFrame.timestamp - firstFrame.timestamp;
+		}
+
 		console.log(
-			`⏹️  Stopped full-session recording: ${this.frames.length} frames, ${this.exerciseGroups.length} exercises in ${sessionDuration}ms`,
+			`⏹️  Stopped full-session recording: ${this.frames.length} frames, ${this.exerciseGroups.length} exercises in ${sessionDuration.toFixed(0)}ms`,
 		);
 
 		return {
@@ -158,7 +161,7 @@ export class PoseRecorder {
 			version: VERSION,
 			frameCount: this.frames.length,
 			startTime: this.startTime,
-			endTime: endTime,
+			endTime: this.frames.length > 0 ? this.frames[this.frames.length - 1].timestamp : this.startTime,
 			sessionDuration: sessionDuration,
 			exerciseGroups: this.exerciseGroups,
 		};

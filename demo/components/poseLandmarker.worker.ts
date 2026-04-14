@@ -119,7 +119,7 @@ self.addEventListener("message", (event: MessageEvent<PoseWorkerInboundMessage>)
 		currentExerciseQualityParameters = message.qualityParameters ?? null;
 		// Mark exercise in recorder if recording
 		if (isRecording) {
-			recorder.markExerciseStart(message.exerciseName, message.frameIndex);
+			recorder.markExerciseStart(message.exerciseName, message.frameIndex, message.timestamp);
 		}
 		// Reset filters for new exercise
 		oneEuroFilters = [];
