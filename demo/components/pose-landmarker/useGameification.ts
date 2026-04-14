@@ -117,8 +117,8 @@ export function useGameification(): UseGameificationReturn {
 	const recordGameSession = (duration: number) => {
 		if (sessionReps === 0 || sessionAccuracy === 0) return;
 
-		const pointsEarned = calculateSessionPoints(sessionReps, sessionAccuracy, gameStats.currentStreak);
-		const formQuality = getFormQuality(sessionAccuracy);
+		const pointsEarned = sessionPoints;
+        const formQuality = getFormQuality(sessionAccuracy);
 
 		const session: SessionRecord = {
 			date: Date.now(),
